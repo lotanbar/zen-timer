@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,11 +12,12 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Accordion } from '../components/Accordion';
 import { DurationPicker } from '../components/DurationPicker';
 import { GridAssetPicker } from '../components/GridAssetPicker';
+import { CategoryTags } from '../components/CategoryTags';
 import { usePreferencesStore, getTotalSeconds } from '../store/preferencesStore';
 import { audioService } from '../services/audioService';
-import { getAmbientAssets, getBellAssets } from '../services/assetDiscoveryService';
+import { getAmbientAssets, getBellAssets, getCategories } from '../services/assetDiscoveryService';
 import { COLORS, FONTS } from '../constants/theme';
-import { RootStackParamList, Asset } from '../types';
+import { RootStackParamList, AmbientCategory, Asset } from '../types';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
@@ -26,19 +27,23 @@ type AccordionKey = 'duration' | 'ambience' | 'ending' | null;
 
 export function HomeScreen({ navigation }: HomeScreenProps) {
   const [expandedAccordion, setExpandedAccordion] = useState<AccordionKey>('duration');
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [ambientAssets, setAmbientAssets] = useState<Asset[]>([]);
   const [bellAssets, setBellAssets] = useState<Asset[]>([]);
+  const [categories, setCategories] = useState<{ id: AmbientCategory; label: string }[]>([]);
 
   useEffect(() => {
     async function loadAssets() {
       try {
-        const [ambient, bells] = await Promise.all([
+        const [ambient, bells, cats] = await Promise.all([
           getAmbientAssets(),
           getBellAssets(),
+          getCategories(),
         ]);
         setAmbientAssets(ambient);
         setBellAssets(bells);
+        setCategories(cats);
         audioService.setAssets(ambient, bells);
       } catch (error) {
         console.error('Failed to load assets:', error);
@@ -52,6 +57,29 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   const { duration, ambienceId, setDuration, setAmbience } = usePreferencesStore();
   const totalSeconds = getTotalSeconds(duration);
   const canStart = totalSeconds > 0;
+
+  const filteredAssets = useMemo(() => {
+    if (selectedCategories.size === 0) {
+      return ambientAssets;
+    }
+    return ambientAssets.filter(a => a.category && selectedCategories.has(a.category));
+  }, [ambientAssets, selectedCategories]);
+
+  const handleCategorySelect = (categoryId: AmbientCategory) => {
+    if (categoryId === 'all') {
+      setSelectedCategories(new Set());
+    } else {
+      setSelectedCategories(prev => {
+        const next = new Set(prev);
+        if (next.has(categoryId)) {
+          next.delete(categoryId);
+        } else {
+          next.add(categoryId);
+        }
+        return next;
+      });
+    }
+  };
 
   const handleToggle = (key: AccordionKey) => {
     setExpandedAccordion(expandedAccordion === key ? null : key);
@@ -96,15 +124,24 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
                 <ActivityIndicator size="large" color={COLORS.text} />
               </View>
             ) : (
-              <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                <GridAssetPicker
-                  assets={ambientAssets}
-                  selectedId={ambienceId}
-                  onSelect={handleAmbienceSelect}
-                  showNoOption
-                  noOptionLabel="None"
-                />
-              </ScrollView>
+              <>
+                <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                  <GridAssetPicker
+                    assets={filteredAssets}
+                    selectedId={ambienceId}
+                    onSelect={handleAmbienceSelect}
+                    showNoOption
+                    noOptionLabel="None"
+                  />
+                </ScrollView>
+                <View style={styles.bottomSection}>
+                  <CategoryTags
+                    categories={categories}
+                    selectedCategories={selectedCategories}
+                    onSelect={handleCategorySelect}
+                  />
+                </View>
+              </>
             )}
           </View>
         </Accordion>
@@ -156,6 +193,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  bottomSection: {
+    marginTop: 'auto',
+    paddingTop: 10,
   },
   placeholder: {
     flex: 1,
