@@ -1,12 +1,22 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Accordion } from '../components/Accordion';
 import { DurationPicker } from '../components/DurationPicker';
+import { GridAssetPicker } from '../components/GridAssetPicker';
 import { usePreferencesStore, getTotalSeconds } from '../store/preferencesStore';
+import { audioService } from '../services/audioService';
+import { getAmbientAssets, getBellAssets } from '../services/assetDiscoveryService';
 import { COLORS, FONTS } from '../constants/theme';
-import { RootStackParamList } from '../types';
+import { RootStackParamList, Asset } from '../types';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
@@ -16,15 +26,48 @@ type AccordionKey = 'duration' | 'ambience' | 'ending' | null;
 
 export function HomeScreen({ navigation }: HomeScreenProps) {
   const [expandedAccordion, setExpandedAccordion] = useState<AccordionKey>('duration');
-  const { duration, setDuration } = usePreferencesStore();
+  const [isLoading, setIsLoading] = useState(true);
+  const [ambientAssets, setAmbientAssets] = useState<Asset[]>([]);
+  const [bellAssets, setBellAssets] = useState<Asset[]>([]);
+
+  useEffect(() => {
+    async function loadAssets() {
+      try {
+        const [ambient, bells] = await Promise.all([
+          getAmbientAssets(),
+          getBellAssets(),
+        ]);
+        setAmbientAssets(ambient);
+        setBellAssets(bells);
+        audioService.setAssets(ambient, bells);
+      } catch (error) {
+        console.error('Failed to load assets:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    loadAssets();
+  }, []);
+
+  const { duration, ambienceId, setDuration, setAmbience } = usePreferencesStore();
   const totalSeconds = getTotalSeconds(duration);
   const canStart = totalSeconds > 0;
 
   const handleToggle = (key: AccordionKey) => {
     setExpandedAccordion(expandedAccordion === key ? null : key);
+    audioService.stopPreview();
   };
 
-  const handleStart = () => {
+  const handleAmbienceSelect = async (id: string | null) => {
+    setAmbience(id);
+    await audioService.stopPreview();
+    if (id) {
+      await audioService.previewAmbient(id);
+    }
+  };
+
+  const handleStart = async () => {
+    await audioService.stopPreview();
     navigation.navigate('Timer');
   };
 
@@ -47,8 +90,22 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
           isExpanded={expandedAccordion === 'ambience'}
           onToggle={() => handleToggle('ambience')}
         >
-          <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>Coming soon...</Text>
+          <View style={styles.ambienceContent}>
+            {isLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={COLORS.text} />
+              </View>
+            ) : (
+              <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                <GridAssetPicker
+                  assets={ambientAssets}
+                  selectedId={ambienceId}
+                  onSelect={handleAmbienceSelect}
+                  showNoOption
+                  noOptionLabel="None"
+                />
+              </ScrollView>
+            )}
           </View>
         </Accordion>
 
@@ -88,6 +145,17 @@ const styles = StyleSheet.create({
   accordionsContainer: {},
   accordionsExpanded: {
     flex: 1,
+  },
+  scrollContent: {
+    flex: 1,
+  },
+  ambienceContent: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   placeholder: {
     flex: 1,
