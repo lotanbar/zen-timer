@@ -12,7 +12,7 @@ type TimerCallback = () => void;
 
 class AudioService {
   private ambientSound: Audio.Sound | null = null;
-  private bellSound: Audio.Sound | null = null;
+  private bellSounds: Set<Audio.Sound> = new Set();
   private previewSound: Audio.Sound | null = null;
   private timerSound: Audio.Sound | null = null;
   private currentPreviewId: string | null = null;
@@ -77,11 +77,14 @@ class AudioService {
 
       const { sound } = await Audio.Sound.createAsync(
         { uri },
-        { isLooping: true, shouldPlay: true }
+        { isLooping: true, shouldPlay: true, volume: 0 }
       );
 
       this.ambientSound = sound;
       this.currentAmbientId = assetId;
+
+      // Fade in like preview
+      this.fadeIn(sound, FADE_DURATION);
     } catch (error) {
       console.error('Failed to play ambient sound:', error);
     }
@@ -126,24 +129,20 @@ class AudioService {
       const uri = this.getAudioUri(assetId, 'bell');
       if (!uri) return;
 
-      if (this.bellSound) {
-        try {
-          await this.bellSound.unloadAsync();
-        } catch {
-          // Ignore unload errors
-        }
-      }
-
       const { sound } = await Audio.Sound.createAsync(
         { uri },
-        { shouldPlay: true }
+        { shouldPlay: true, volume: 0 }
       );
 
-      this.bellSound = sound;
+      this.bellSounds.add(sound);
 
-      // Auto-cleanup after bell finishes (assume max 30 seconds)
+      // Fade in over 2 seconds
+      this.fadeIn(sound, 2000);
+
+      // Auto-cleanup after bell finishes
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
+          this.bellSounds.delete(sound);
           sound.unloadAsync().catch(() => {});
         }
       });
@@ -161,24 +160,20 @@ class AudioService {
         return 0;
       }
 
-      if (this.bellSound) {
-        try {
-          await this.bellSound.unloadAsync();
-        } catch {
-          // Ignore unload errors
-        }
-      }
-
       const { sound, status } = await Audio.Sound.createAsync(
         { uri },
-        { shouldPlay: true }
+        { shouldPlay: true, volume: 0 }
       );
 
-      this.bellSound = sound;
+      this.bellSounds.add(sound);
       const durationMs = status.isLoaded ? (status.durationMillis ?? 5000) : 5000;
+
+      // Fade in over 2 seconds
+      this.fadeIn(sound, 2000);
 
       sound.setOnPlaybackStatusUpdate((playbackStatus) => {
         if (playbackStatus.isLoaded && playbackStatus.didJustFinish) {
+          this.bellSounds.delete(sound);
           sound.unloadAsync().catch(() => {});
           onComplete();
         }
@@ -202,16 +197,19 @@ class AudioService {
   }
 
   private async stopBell(): Promise<void> {
-    if (this.bellSound) {
-      try {
-        await this.bellSound.stopAsync();
-        await this.bellSound.unloadAsync();
-      } catch {
-        // Ignore errors
-      } finally {
-        this.bellSound = null;
-      }
-    }
+    const sounds = Array.from(this.bellSounds);
+    this.bellSounds.clear();
+
+    await Promise.all(
+      sounds.map(async (sound) => {
+        try {
+          await sound.stopAsync();
+          await sound.unloadAsync();
+        } catch {
+          // Ignore errors
+        }
+      })
+    );
   }
 
   // Start background timer - uses silent audio to keep callbacks firing
@@ -320,8 +318,8 @@ class AudioService {
     }
   }
 
-  private async fadeIn(sound: Audio.Sound): Promise<void> {
-    const stepTime = FADE_DURATION / FADE_STEPS;
+  private async fadeIn(sound: Audio.Sound, durationMs: number = FADE_DURATION): Promise<void> {
+    const stepTime = durationMs / FADE_STEPS;
     await sound.setVolumeAsync(0);
     for (let i = 0; i <= FADE_STEPS; i++) {
       try {
@@ -412,10 +410,13 @@ class AudioService {
 
       const { sound } = await Audio.Sound.createAsync(
         { uri },
-        { shouldPlay: true }
+        { shouldPlay: true, volume: 0 }
       );
 
       this.previewSound = sound;
+
+      // Fade in over 2 seconds
+      this.fadeIn(sound, 2000);
 
       // Auto-cleanup after preview finishes
       sound.setOnPlaybackStatusUpdate((status) => {
