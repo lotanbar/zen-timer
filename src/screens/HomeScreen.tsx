@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,11 @@ import {
   ToastAndroid,
   Platform,
   Alert,
+  Dimensions,
+  Animated,
+  Easing,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
@@ -38,6 +42,27 @@ type HomeScreenProps = {
 
 type AccordionKey = 'duration' | 'ambience' | 'ending' | null;
 
+// Grid layout constants (must match GridAssetPicker)
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const NUM_COLUMNS = 3;
+const ITEM_MARGIN = 12;
+const ITEM_SIZE = (SCREEN_WIDTH - 40 - ITEM_MARGIN * (NUM_COLUMNS - 1)) / NUM_COLUMNS;
+const ROW_HEIGHT = (ITEM_SIZE - 10) + 6 + 26 + ITEM_MARGIN; // image + marginTop + label (~2 lines) + row margin
+
+function ShuffleIcon({ size = 20, color = COLORS.text }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M16 3h5v5M4 20L20.5 3.5M21 16v5h-5M15 15l5.5 5.5M4 4l5 5"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 function showToast(message: string) {
   if (Platform.OS === 'android') {
     ToastAndroid.show(message, ToastAndroid.SHORT);
@@ -47,6 +72,8 @@ function showToast(message: string) {
 }
 
 export function HomeScreen({ navigation }: HomeScreenProps) {
+  const scrollViewRef = useRef<ScrollView>(null);
+  const currentScrollY = useRef(0);
   const [expandedAccordion, setExpandedAccordion] = useState<AccordionKey>('duration');
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -165,6 +192,43 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     togglePinned(id);
   };
 
+  const smoothScrollTo = (targetY: number, duration: number = 600) => {
+    const startY = currentScrollY.current;
+    const animatedValue = new Animated.Value(0);
+
+    animatedValue.addListener(({ value }) => {
+      const y = startY + (targetY - startY) * value;
+      scrollViewRef.current?.scrollTo({ y, animated: false });
+    });
+
+    Animated.timing(animatedValue, {
+      toValue: 1,
+      duration,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start(() => {
+      animatedValue.removeAllListeners();
+    });
+  };
+
+  const handleShuffle = () => {
+    if (filteredAssets.length === 0) return;
+    const randomIndex = Math.floor(Math.random() * filteredAssets.length);
+    const randomAsset = filteredAssets[randomIndex];
+
+    // Calculate row position (+1 for "None" option at start)
+    const itemIndex = randomIndex + 1;
+    const rowIndex = Math.floor(itemIndex / NUM_COLUMNS);
+
+    // Position: container padding (10) + row offset, then subtract 2 rows to center better
+    const rowY = 10 + rowIndex * ROW_HEIGHT;
+    const scrollY = Math.max(0, rowY - ROW_HEIGHT * 2);
+
+    // Scroll with smooth animation (1200ms), then select and preview
+    smoothScrollTo(scrollY, 1200);
+    handleAmbienceSelect(randomAsset.id, randomAsset);
+  };
+
   const handleStart = async () => {
     // Stop bell sounds but keep ambient preview if playing
     await audioService.stopBellPreview();
@@ -217,7 +281,13 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
               ) : (
                 <>
                   {/* Main grid */}
-                  <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                  <ScrollView
+                    ref={scrollViewRef}
+                    style={styles.scrollContent}
+                    showsVerticalScrollIndicator={false}
+                    onScroll={(e) => { currentScrollY.current = e.nativeEvent.contentOffset.y; }}
+                    scrollEventThrottle={16}
+                  >
                     <GridAssetPicker
                       assets={filteredAssets}
                       selectedId={ambienceId}
@@ -238,14 +308,25 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
                         onSelect={handleCategorySelect}
                       />
                     )}
-                    <SearchBar
-                      value={searchQuery}
-                      onChangeText={setSearchQuery}
-                      placeholder={`Search sounds... (${filteredAssets.length})`}
-                      showFilter
-                      filterActive={showTags}
-                      onFilterPress={() => setShowTags(!showTags)}
-                    />
+                    <View style={styles.searchRow}>
+                      <View style={styles.searchBarWrapper}>
+                        <SearchBar
+                          value={searchQuery}
+                          onChangeText={setSearchQuery}
+                          placeholder={`Search sounds... (${filteredAssets.length})`}
+                          showFilter
+                          filterActive={showTags}
+                          onFilterPress={() => setShowTags(!showTags)}
+                        />
+                      </View>
+                      <TouchableOpacity
+                        onPress={handleShuffle}
+                        style={styles.shuffleButton}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <ShuffleIcon size={20} color={COLORS.text} />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </>
               )}
@@ -331,6 +412,17 @@ const styles = StyleSheet.create({
   bottomSection: {
     marginTop: 'auto',
     paddingTop: 10,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  shuffleButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  searchBarWrapper: {
+    flex: 1,
   },
   endingContent: {
     flex: 1,
