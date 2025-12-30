@@ -101,6 +101,26 @@ class AudioService {
     }
   }
 
+  async fadeOutAmbient(durationMs: number): Promise<void> {
+    if (!this.ambientSound) return;
+
+    const steps = 30;
+    const stepTime = durationMs / steps;
+    const sound = this.ambientSound;
+
+    for (let i = steps; i >= 0; i--) {
+      if (!this.ambientSound || this.ambientSound !== sound) break;
+      try {
+        await sound.setVolumeAsync(i / steps);
+        await new Promise(resolve => setTimeout(resolve, stepTime));
+      } catch {
+        break;
+      }
+    }
+
+    await this.stopAmbient();
+  }
+
   async playBell(assetId: string): Promise<void> {
     try {
       const uri = this.getAudioUri(assetId, 'bell');
@@ -129,6 +149,46 @@ class AudioService {
       });
     } catch (error) {
       console.error('Failed to play bell sound:', error);
+    }
+  }
+
+  // Play bell and return its duration, call onComplete when finished
+  async playBellWithCompletion(assetId: string, onComplete: () => void): Promise<number> {
+    try {
+      const uri = this.getAudioUri(assetId, 'bell');
+      if (!uri) {
+        onComplete();
+        return 0;
+      }
+
+      if (this.bellSound) {
+        try {
+          await this.bellSound.unloadAsync();
+        } catch {
+          // Ignore unload errors
+        }
+      }
+
+      const { sound, status } = await Audio.Sound.createAsync(
+        { uri },
+        { shouldPlay: true }
+      );
+
+      this.bellSound = sound;
+      const durationMs = status.isLoaded ? (status.durationMillis ?? 5000) : 5000;
+
+      sound.setOnPlaybackStatusUpdate((playbackStatus) => {
+        if (playbackStatus.isLoaded && playbackStatus.didJustFinish) {
+          sound.unloadAsync().catch(() => {});
+          onComplete();
+        }
+      });
+
+      return durationMs;
+    } catch (error) {
+      console.error('Failed to play bell sound:', error);
+      onComplete();
+      return 0;
     }
   }
 
@@ -206,15 +266,23 @@ class AudioService {
     // Check for timer completion
     if (elapsedMs >= this.timerDurationMs) {
       this.timerCompleted = true;
-      await this.stopAmbient();
+
+      // Save references before stopTimer nullifies them
+      const callback = this.timerCallback;
+      const bellId = this.timerBellId;
+
       await this.stopTimer();
 
-      if (this.timerBellId) {
-        await this.playBell(this.timerBellId);
-      }
-
-      if (this.timerCallback) {
-        this.timerCallback();
+      if (bellId) {
+        // Play bell and fade out ambient over its duration
+        const bellDuration = await this.playBellWithCompletion(bellId, () => {
+          if (callback) callback();
+        });
+        // Fade out ambient over the bell duration
+        this.fadeOutAmbient(bellDuration);
+      } else {
+        await this.stopAmbient();
+        if (callback) callback();
       }
     }
   };

@@ -65,7 +65,10 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       ambienceId,
       bellId,
     });
-  }, [totalSeconds, ambienceId, bellId, addSession]);
+
+    // Navigate back (called after bell finishes playing)
+    navigation.goBack();
+  }, [totalSeconds, ambienceId, bellId, addSession, navigation]);
 
   // Handle app state changes (background/foreground) to update display
   useEffect(() => {
