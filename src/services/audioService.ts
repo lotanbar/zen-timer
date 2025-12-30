@@ -1,17 +1,32 @@
-import { Audio } from 'expo-av';
+import { Audio, AVPlaybackStatus } from 'expo-av';
 import { Asset } from '../types';
 import { assetCacheService } from './assetCacheService';
 
 const FADE_DURATION = 400;
 const FADE_STEPS = 20;
 
+// Path to bundled silent audio for background timer
+const SILENCE_AUDIO = require('../../assets/silence.mp3');
+
+type TimerCallback = () => void;
+
 class AudioService {
   private ambientSound: Audio.Sound | null = null;
   private bellSound: Audio.Sound | null = null;
   private previewSound: Audio.Sound | null = null;
+  private timerSound: Audio.Sound | null = null;
   private currentPreviewId: string | null = null;
   private currentAmbientId: string | null = null;
   private initialized = false;
+
+  // Timer state
+  private timerStartTime: number = 0;
+  private timerDurationMs: number = 0;
+  private timerCallback: TimerCallback | null = null;
+  private timerCompleted: boolean = false;
+  private scheduledBellTimes: number[] = [];
+  private playedBellTimes: Set<number> = new Set();
+  private timerBellId: string | null = null;
 
   // Asset registry - populated dynamically
   private ambientAssets: Asset[] = [];
@@ -122,6 +137,7 @@ class AudioService {
       this.stopAmbient(),
       this.stopPreview(),
       this.stopBell(),
+      this.stopTimer(),
     ]);
   }
 
@@ -136,6 +152,92 @@ class AudioService {
         this.bellSound = null;
       }
     }
+  }
+
+  // Start background timer - uses silent audio to keep callbacks firing
+  async startTimer(
+    durationSeconds: number,
+    bellId: string,
+    bellTimes: number[],
+    onComplete: TimerCallback
+  ): Promise<void> {
+    await this.stopTimer();
+
+    this.timerStartTime = Date.now();
+    this.timerDurationMs = durationSeconds * 1000;
+    this.timerCallback = onComplete;
+    this.timerCompleted = false;
+    this.scheduledBellTimes = bellTimes;
+    this.playedBellTimes = new Set();
+    this.timerBellId = bellId;
+
+    try {
+      const { sound } = await Audio.Sound.createAsync(
+        SILENCE_AUDIO,
+        { isLooping: true, shouldPlay: true }
+      );
+
+      this.timerSound = sound;
+
+      // This callback fires even in background!
+      sound.setOnPlaybackStatusUpdate(this.handleTimerUpdate);
+    } catch (error) {
+      console.error('Failed to start timer audio:', error);
+    }
+  }
+
+  private handleTimerUpdate = async (status: AVPlaybackStatus): Promise<void> => {
+    if (!status.isLoaded || this.timerCompleted) return;
+
+    const elapsedMs = Date.now() - this.timerStartTime;
+    const elapsedSeconds = Math.floor(elapsedMs / 1000);
+
+    // Check for intermediate bells
+    for (const bellTime of this.scheduledBellTimes) {
+      if (elapsedSeconds >= bellTime && !this.playedBellTimes.has(bellTime)) {
+        this.playedBellTimes.add(bellTime);
+        if (this.timerBellId) {
+          this.playBell(this.timerBellId);
+        }
+        break; // Only play one bell per update to avoid overlap
+      }
+    }
+
+    // Check for timer completion
+    if (elapsedMs >= this.timerDurationMs) {
+      this.timerCompleted = true;
+      await this.stopAmbient();
+      await this.stopTimer();
+
+      if (this.timerBellId) {
+        await this.playBell(this.timerBellId);
+      }
+
+      if (this.timerCallback) {
+        this.timerCallback();
+      }
+    }
+  };
+
+  async stopTimer(): Promise<void> {
+    this.timerCallback = null;
+    this.timerBellId = null;
+
+    if (this.timerSound) {
+      try {
+        this.timerSound.setOnPlaybackStatusUpdate(null);
+        await this.timerSound.stopAsync();
+        await this.timerSound.unloadAsync();
+      } catch {
+        // Ignore errors
+      } finally {
+        this.timerSound = null;
+      }
+    }
+  }
+
+  isTimerCompleted(): boolean {
+    return this.timerCompleted;
   }
 
   private async fadeOut(sound: Audio.Sound): Promise<void> {

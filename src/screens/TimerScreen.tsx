@@ -43,13 +43,10 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   const [remaining, setRemaining] = useState(totalSeconds);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(Date.now());
-  const bellTimesRef = useRef<number[]>([]);
-  const playedBellsRef = useRef<Set<number>>(new Set());
   const isCompletedRef = useRef(false);
   const isMountedRef = useRef(true);
-  const bellPlayingRef = useRef(false);
 
-  const handleComplete = useCallback(async () => {
+  const handleComplete = useCallback(() => {
     if (isCompletedRef.current) return;
     isCompletedRef.current = true;
 
@@ -58,8 +55,7 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       intervalRef.current = null;
     }
 
-    await audioService.stopAmbient();
-    await audioService.playBell(bellId);
+    setRemaining(0);
 
     // Record completed session
     addSession({
@@ -69,19 +65,20 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       ambienceId,
       bellId,
     });
-  }, [bellId, totalSeconds, ambienceId, addSession]);
+  }, [totalSeconds, ambienceId, bellId, addSession]);
 
-  // Handle app state changes (background/foreground) to maintain accurate time
+  // Handle app state changes (background/foreground) to update display
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active' && !isCompletedRef.current) {
-        // Recalculate remaining time based on actual elapsed time
+        // Recalculate remaining time for display
         const elapsedMs = Date.now() - startTimeRef.current;
         const elapsedSeconds = Math.floor(elapsedMs / 1000);
         const newRemaining = Math.max(0, totalSeconds - elapsedSeconds);
         setRemaining(newRemaining);
 
-        if (newRemaining <= 0) {
+        // Check if timer completed while in background
+        if (audioService.isTimerCompleted()) {
           handleComplete();
         }
       }
@@ -99,30 +96,35 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
 
       if (!isMountedRef.current) return;
 
+      // Start ambient if selected
       if (ambienceId) {
         await audioService.playAmbient(ambienceId);
       }
 
-      bellTimesRef.current = calculateBellTimes(totalSeconds, repeatBell);
+      // Calculate bell times (excluding the final bell which is handled by completion)
+      const bellTimes = calculateBellTimes(totalSeconds, repeatBell);
+
+      // Start the background timer - this handles bells and completion even when screen is off
+      await audioService.startTimer(totalSeconds, bellId, bellTimes, () => {
+        if (isMountedRef.current) {
+          handleComplete();
+        }
+      });
     };
 
     init();
     startTimeRef.current = Date.now();
 
-    // Use timestamp-based timing to prevent drift
+    // Simple interval just for UI updates (ok if paused in background)
     intervalRef.current = setInterval(() => {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || isCompletedRef.current) return;
 
       const elapsedMs = Date.now() - startTimeRef.current;
       const elapsedSeconds = Math.floor(elapsedMs / 1000);
       const newRemaining = Math.max(0, totalSeconds - elapsedSeconds);
 
       setRemaining(newRemaining);
-
-      if (newRemaining <= 0 && !isCompletedRef.current) {
-        handleComplete();
-      }
-    }, 250); // Check more frequently for better accuracy
+    }, 250);
 
     return () => {
       isMountedRef.current = false;
@@ -131,30 +133,7 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       }
       audioService.stopAll();
     };
-  }, [ambienceId, totalSeconds, repeatBell, handleComplete]);
-
-  // Bell scheduling - check based on elapsed time
-  useEffect(() => {
-    if (isCompletedRef.current || bellPlayingRef.current) return;
-
-    const elapsedSeconds = totalSeconds - remaining;
-
-    // Find bells that should play now
-    const bellsToPlay = bellTimesRef.current.filter(
-      (bellTime) => elapsedSeconds >= bellTime && !playedBellsRef.current.has(bellTime)
-    );
-
-    if (bellsToPlay.length > 0) {
-      // Mark all as played immediately to prevent duplicates
-      bellsToPlay.forEach((bellTime) => playedBellsRef.current.add(bellTime));
-
-      // Play only the most recent bell (avoid overlapping)
-      bellPlayingRef.current = true;
-      audioService.playBell(bellId).finally(() => {
-        bellPlayingRef.current = false;
-      });
-    }
-  }, [remaining, bellId, totalSeconds]);
+  }, [ambienceId, totalSeconds, repeatBell, bellId, handleComplete]);
 
   const handleStop = useCallback(async () => {
     if (intervalRef.current) {
