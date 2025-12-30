@@ -63,6 +63,20 @@ function ShuffleIcon({ size = 20, color = COLORS.text }: { size?: number; color?
   );
 }
 
+function FilterIcon({ size = 20, color = COLORS.text }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M2 4h20L14 13v6l-4 2v-8L2 4z"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 function showToast(message: string) {
   if (Platform.OS === 'android') {
     ToastAndroid.show(message, ToastAndroid.SHORT);
@@ -314,14 +328,18 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
                           value={searchQuery}
                           onChangeText={setSearchQuery}
                           placeholder={`Search sounds... (${filteredAssets.length})`}
-                          showFilter
-                          filterActive={showTags}
-                          onFilterPress={() => setShowTags(!showTags)}
                         />
                       </View>
                       <TouchableOpacity
+                        onPress={() => setShowTags(!showTags)}
+                        style={styles.iconButton}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <FilterIcon size={20} color={COLORS.text} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
                         onPress={handleShuffle}
-                        style={styles.shuffleButton}
+                        style={styles.iconButton}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       >
                         <ShuffleIcon size={20} color={COLORS.text} />
@@ -417,9 +435,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  shuffleButton: {
+  iconButton: {
     padding: 8,
-    marginLeft: 8,
   },
   searchBarWrapper: {
     flex: 1,
