@@ -31,12 +31,13 @@ export function SlotCarousel({ assets, selectedId, onSelect, compact = false }: 
   const itemTotal = itemSize + itemGap;
 
   const { width: screenWidth } = useWindowDimensions();
-  // Center the item above the label
-  const basePadding = (screenWidth - itemSize) / 2 - itemGap - 8;
-  const sidePadding = compact ? basePadding * 1.05 : basePadding;
+  // Center the item: padding so that item center aligns with screen center
+  const centerOffset = 26; // shift items slightly right
+  const sidePadding = (screenWidth - itemTotal) / 2 + centerOffset;
 
   const listRef = useRef<FlatList>(null);
   const hasScrolledRef = useRef(false);
+  const prevCompactRef = useRef(compact);
   const selectedIndex = assets.findIndex((a) => a.id === selectedId);
 
   // Create a large repeated array for infinite scroll illusion
@@ -63,13 +64,16 @@ export function SlotCarousel({ assets, selectedId, onSelect, compact = false }: 
     }
   }, [selectedIndex, middleStartIndex, itemTotal]);
 
-  // Re-sync scroll position when compact mode changes
+  // Re-sync scroll position only when compact mode changes
   useEffect(() => {
-    if (hasScrolledRef.current && listRef.current && selectedIndex >= 0) {
-      listRef.current.scrollToOffset({
-        offset: middleStartIndex * itemTotal,
-        animated: false,
-      });
+    if (prevCompactRef.current !== compact) {
+      prevCompactRef.current = compact;
+      if (hasScrolledRef.current && listRef.current && selectedIndex >= 0) {
+        listRef.current.scrollToOffset({
+          offset: middleStartIndex * itemTotal,
+          animated: false,
+        });
+      }
     }
   }, [compact, itemTotal, middleStartIndex, selectedIndex]);
 
