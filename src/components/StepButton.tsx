@@ -14,36 +14,29 @@ interface StepButtonProps {
 }
 
 export interface StepButtonRef {
-  animate: () => void;
+  pulse: () => void;
 }
 
 export const StepButton = forwardRef<StepButtonRef, StepButtonProps>(
   ({ label, value, imageUrl, onPress }, ref) => {
     const animatedValue = useRef(new Animated.Value(0)).current;
 
-    const runAnimation = () => {
-      animatedValue.setValue(0);
-      Animated.sequence([
-        Animated.timing(animatedValue, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: false,
-        }),
-        Animated.timing(animatedValue, {
-          toValue: 0,
-          duration: 400,
-          useNativeDriver: false,
-        }),
-      ]).start();
+    const pulse = () => {
+      animatedValue.setValue(1);
+      Animated.timing(animatedValue, {
+        toValue: 0,
+        duration: 1500,
+        useNativeDriver: false,
+      }).start();
     };
 
     useImperativeHandle(ref, () => ({
-      animate: runAnimation,
+      pulse,
     }));
 
     const borderColor = animatedValue.interpolate({
       inputRange: [0, 1],
-      outputRange: [COLORS.border, COLORS.text],
+      outputRange: [COLORS.border, COLORS.textSecondary],
     });
 
     return (

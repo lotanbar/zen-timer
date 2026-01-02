@@ -13,10 +13,8 @@ import { StepButton, StepButtonRef } from '../components';
 import { usePreferencesStore, getTotalSeconds } from '../store/preferencesStore';
 import { COLORS, FONTS } from '../constants/theme';
 import { audioService } from '../services/audioService';
-import {
-  getAmbientAssets,
-  getBellAssets,
-} from '../services/assetDiscoveryService';
+import { getBellAssets } from '../services/assetDiscoveryService';
+import { SAMPLE_ASSETS } from '../constants/sampleAssets';
 import { RootStackParamList, Asset } from '../types';
 
 type HomeScreenProps = {
@@ -26,7 +24,6 @@ type HomeScreenProps = {
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_HEIGHT = SCREEN_HEIGHT * 0.10;
 const BUTTON_GAP = 16;
-const TOTAL_BUTTONS_HEIGHT = 3 * BUTTON_HEIGHT + 2 * BUTTON_GAP;
 
 function formatDuration(hours: number, minutes: number, seconds: number): string {
   const parts: string[] = [];
@@ -36,15 +33,18 @@ function formatDuration(hours: number, minutes: number, seconds: number): string
   return parts.length > 0 ? parts.join(' ') : '0s';
 }
 
+function getRandomInterval() {
+  return 5000 + Math.random() * 5000; // 5-10 seconds
+}
+
 export function HomeScreen({ navigation }: HomeScreenProps) {
   const [isLoading, setIsLoading] = useState(true);
-  const [ambientAssets, setAmbientAssets] = useState<Asset[]>([]);
   const [bellAssets, setBellAssets] = useState<Asset[]>([]);
-  const lastNavigatedScreen = useRef<string | null>(null);
 
   const durationRef = useRef<StepButtonRef>(null);
   const ambienceRef = useRef<StepButtonRef>(null);
   const bellRef = useRef<StepButtonRef>(null);
+  const buttonRefs = [durationRef, ambienceRef, bellRef];
 
   const {
     duration,
@@ -57,13 +57,9 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   useEffect(() => {
     async function loadAssets() {
       try {
-        const [ambient, bells] = await Promise.all([
-          getAmbientAssets(),
-          getBellAssets(),
-        ]);
-        setAmbientAssets(ambient);
+        const bells = await getBellAssets();
         setBellAssets(bells);
-        audioService.setAssets(ambient, bells);
+        audioService.setAssets(SAMPLE_ASSETS, bells);
       } catch (error) {
         console.error('Failed to load assets:', error);
       } finally {
@@ -73,34 +69,24 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     loadAssets();
   }, []);
 
-  // Listen for focus events to trigger animation on the button that was navigated to
+  // Random pulse effect to make app feel alive
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      if (lastNavigatedScreen.current) {
-        const screen = lastNavigatedScreen.current;
-        lastNavigatedScreen.current = null;
+    let timeoutId: NodeJS.Timeout;
 
-        // Delay animation so user can see it after screen transition
-        setTimeout(() => {
-          switch (screen) {
-            case 'Duration':
-              durationRef.current?.animate();
-              break;
-            case 'Ambience':
-              ambienceRef.current?.animate();
-              break;
-            case 'Bell':
-              bellRef.current?.animate();
-              break;
-          }
-        }, 200);
-      }
-    });
+    const scheduleNextPulse = () => {
+      timeoutId = setTimeout(() => {
+        const randomIndex = Math.floor(Math.random() * buttonRefs.length);
+        buttonRefs[randomIndex].current?.pulse();
+        scheduleNextPulse();
+      }, getRandomInterval());
+    };
 
-    return unsubscribe;
-  }, [navigation]);
+    scheduleNextPulse();
 
-  const selectedAmbience = ambientAssets.find(a => a.id === ambienceId);
+    return () => clearTimeout(timeoutId);
+  }, []);
+
+  const selectedAmbience = SAMPLE_ASSETS.find(a => a.id === ambienceId);
   const selectedBell = bellAssets.find(b => b.id === bellId);
 
   const durationValue = formatDuration(duration.hours, duration.minutes, duration.seconds);
@@ -110,7 +96,6 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     : selectedBell?.displayName || bellId;
 
   const handleNavigate = (screen: 'Duration' | 'Ambience' | 'Bell') => {
-    lastNavigatedScreen.current = screen;
     navigation.navigate(screen);
   };
 
@@ -195,17 +180,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonsContainer: {
-    position: 'absolute',
-    top: (SCREEN_HEIGHT - TOTAL_BUTTONS_HEIGHT) / 2,
-    left: 20,
-    right: 20,
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
     gap: BUTTON_GAP,
   },
   footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

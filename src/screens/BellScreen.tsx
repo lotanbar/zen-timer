@@ -55,14 +55,14 @@ export function BellScreen({ navigation }: BellScreenProps) {
   };
 
   const handleBack = async () => {
-    await audioService.stopBellPreview();
+    await audioService.stopPreview();
     navigation.goBack();
   };
 
   const handleSubmit = async () => {
     setBell(localBellId);
     setRepeatBell(localRepeatBell);
-    await audioService.stopBellPreview();
+    await audioService.stopPreview();
     navigation.goBack();
   };
 

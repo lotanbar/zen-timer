@@ -21,19 +21,19 @@ interface SlotCarouselProps {
 }
 
 const SIZES = {
-  normal: { itemSize: 200, itemGap: 32 },
-  compact: { itemSize: 140, itemGap: 24 },
+  normal: { itemSize: 200, itemGap: 32, offsetAdjust: -10 },
+  compact: { itemSize: 140, itemGap: 24, offsetAdjust: 10 },
 };
 const REPEATS = 100;
 
 export function SlotCarousel({ assets, selectedId, onSelect, compact = false }: SlotCarouselProps) {
-  const { itemSize, itemGap } = compact ? SIZES.compact : SIZES.normal;
+  const { itemSize, itemGap, offsetAdjust } = compact ? SIZES.compact : SIZES.normal;
   const itemTotal = itemSize + itemGap;
 
   const { width: screenWidth } = useWindowDimensions();
-  // Center the item: padding so that item center aligns with screen center
-  const centerOffset = 26; // shift items slightly right
-  const sidePadding = (screenWidth - itemTotal) / 2 + centerOffset;
+  // Center the selected item on screen
+  // sidePadding = distance from edge to start of first item when centered
+  const sidePadding = (screenWidth - itemTotal) / 2 + offsetAdjust;
 
   const listRef = useRef<FlatList>(null);
   const hasScrolledRef = useRef(false);
@@ -92,9 +92,8 @@ export function SlotCarousel({ assets, selectedId, onSelect, compact = false }: 
       offset: flatIndex * itemTotal,
       animated: true,
     });
-    if (itemId !== selectedId) {
-      onSelect(itemId);
-    }
+    // Always call onSelect to trigger preview, even if already selected
+    onSelect(itemId);
   };
 
   const currentAsset = assets.find((a) => a.id === selectedId);
@@ -136,7 +135,7 @@ export function SlotCarousel({ assets, selectedId, onSelect, compact = false }: 
         horizontal
         showsHorizontalScrollIndicator={false}
         snapToInterval={itemTotal}
-        decelerationRate="fast"
+        decelerationRate={0.985}
         onMomentumScrollEnd={handleScrollEnd}
         onLayout={handleLayout}
         getItemLayout={getItemLayout}

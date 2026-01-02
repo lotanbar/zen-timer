@@ -5,6 +5,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { DurationPicker } from '../components';
 import { usePreferencesStore } from '../store/preferencesStore';
 import { COLORS, FONTS } from '../constants/theme';
+import { audioService } from '../services/audioService';
 import { RootStackParamList, Duration } from '../types';
 
 type DurationScreenProps = {
@@ -15,11 +16,13 @@ export function DurationScreen({ navigation }: DurationScreenProps) {
   const { duration: storeDuration, setDuration } = usePreferencesStore();
   const [localDuration, setLocalDuration] = useState<Duration>(storeDuration);
 
-  const handleBack = () => {
+  const handleBack = async () => {
+    await audioService.stopPreview();
     navigation.goBack();
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    await audioService.stopPreview();
     setDuration(localDuration);
     navigation.goBack();
   };
