@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { DurationPicker } from '../components';
 import { usePreferencesStore } from '../store/preferencesStore';
@@ -36,7 +37,7 @@ export function DurationScreen({ navigation }: DurationScreenProps) {
 
       <View style={styles.footer}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack} activeOpacity={0.7}>
-          <Text style={styles.backButtonText}>Back</Text>
+          <Feather name="chevron-left" size={22} color={COLORS.textSecondary} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} activeOpacity={0.7}>
           <Text style={styles.submitButtonText}>Submit</Text>
@@ -65,28 +66,26 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    gap: 12,
+    gap: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.border,
   },
   backButton: {
-    flex: 1,
-    paddingVertical: 14,
+    width: 48,
+    height: 48,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: COLORS.border,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  backButtonText: {
-    color: COLORS.text,
-    fontSize: FONTS.size.medium,
-    fontWeight: FONTS.medium,
-  },
   submitButton: {
-    flex: 1,
     paddingVertical: 14,
+    paddingHorizontal: 50,
     borderRadius: 8,
     backgroundColor: COLORS.text,
     alignItems: 'center',

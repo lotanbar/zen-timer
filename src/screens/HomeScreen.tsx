@@ -34,7 +34,7 @@ function formatDuration(hours: number, minutes: number, seconds: number): string
 }
 
 function getRandomInterval() {
-  return 5000 + Math.random() * 5000; // 5-10 seconds
+  return 3000 + Math.random() * 5000; // 3-8 seconds
 }
 
 export function HomeScreen({ navigation }: HomeScreenProps) {

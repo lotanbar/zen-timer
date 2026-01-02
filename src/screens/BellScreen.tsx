@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SlotCarousel, RepeatingBellOptions } from '../components';
 import { usePreferencesStore } from '../store/preferencesStore';
@@ -33,6 +34,7 @@ export function BellScreen({ navigation }: BellScreenProps) {
 
   const [isLoading, setIsLoading] = useState(true);
   const [bellAssets, setBellAssets] = useState<Asset[]>([]);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadAssets() {
@@ -49,9 +51,25 @@ export function BellScreen({ navigation }: BellScreenProps) {
     loadAssets();
   }, []);
 
+  // Stop preview when leaving screen (handles swipe-back and header back button)
+  useEffect(() => {
+    return () => {
+      audioService.stopPreview();
+    };
+  }, []);
+
   const handleBellSelect = (id: string) => {
     setLocalBellId(id);
-    audioService.previewBell(id);
+
+    // Toggle off if clicking currently playing item
+    if (audioService.isPreviewPlaying(id)) {
+      audioService.stopPreview();
+      return;
+    }
+
+    // Play new item with loading indicator (clears when data loads, not when fadeIn ends)
+    setLoadingId(id);
+    audioService.previewBell(id, () => setLoadingId(null));
   };
 
   const handleBack = async () => {
@@ -83,6 +101,7 @@ export function BellScreen({ navigation }: BellScreenProps) {
                 selectedId={localBellId}
                 onSelect={handleBellSelect}
                 compact={localRepeatBell.enabled}
+                loadingId={loadingId}
               />
             </View>
             <RepeatingBellOptions
@@ -96,7 +115,7 @@ export function BellScreen({ navigation }: BellScreenProps) {
 
       <View style={styles.footer}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack} activeOpacity={0.7}>
-          <Text style={styles.backButtonText}>Back</Text>
+          <Feather name="chevron-left" size={22} color={COLORS.textSecondary} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} activeOpacity={0.7}>
           <Text style={styles.submitButtonText}>Submit</Text>
@@ -137,28 +156,26 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    gap: 12,
+    gap: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.border,
   },
   backButton: {
-    flex: 1,
-    paddingVertical: 14,
+    width: 48,
+    height: 48,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: COLORS.border,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  backButtonText: {
-    color: COLORS.text,
-    fontSize: FONTS.size.medium,
-    fontWeight: FONTS.medium,
-  },
   submitButton: {
-    flex: 1,
     paddingVertical: 14,
+    paddingHorizontal: 50,
     borderRadius: 8,
     backgroundColor: COLORS.text,
     alignItems: 'center',

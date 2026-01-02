@@ -22,12 +22,19 @@ export const StepButton = forwardRef<StepButtonRef, StepButtonProps>(
     const animatedValue = useRef(new Animated.Value(0)).current;
 
     const pulse = () => {
-      animatedValue.setValue(1);
-      Animated.timing(animatedValue, {
-        toValue: 0,
-        duration: 1500,
-        useNativeDriver: false,
-      }).start();
+      animatedValue.setValue(0);
+      Animated.sequence([
+        Animated.timing(animatedValue, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: false,
+        }),
+        Animated.timing(animatedValue, {
+          toValue: 0,
+          duration: 1000,
+          useNativeDriver: false,
+        }),
+      ]).start();
     };
 
     useImperativeHandle(ref, () => ({
@@ -112,6 +119,5 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 6,
-    backgroundColor: COLORS.border,
   },
 });

@@ -375,18 +375,22 @@ class AudioService {
     // Note: We don't stop ambient preview here
   }
 
-  async previewAmbient(assetId: string): Promise<void> {
+  async previewAmbient(assetId: string, onLoaded?: () => void): Promise<void> {
     try {
       // If same asset is playing, stop it (toggle behavior)
       if (this.currentPreviewId === assetId) {
         await this.stopPreview();
+        onLoaded?.();
         return;
       }
 
       await this.stopPreview();
 
       const uri = this.getAudioUri(assetId, 'ambient');
-      if (!uri) return;
+      if (!uri) {
+        onLoaded?.();
+        return;
+      }
 
       const { sound } = await Audio.Sound.createAsync(
         { uri },
@@ -395,18 +399,26 @@ class AudioService {
 
       this.previewSound = sound;
       this.currentPreviewId = assetId;
-      await this.fadeIn(sound);
+
+      // Data is loaded, clear loading state before fadeIn
+      onLoaded?.();
+
+      this.fadeIn(sound);
     } catch (error) {
       console.error('Failed to preview ambient sound:', error);
+      onLoaded?.();
     }
   }
 
-  async previewBell(assetId: string): Promise<void> {
+  async previewBell(assetId: string, onLoaded?: () => void): Promise<void> {
     try {
       await this.stopPreview();
 
       const uri = this.getAudioUri(assetId, 'bell');
-      if (!uri) return;
+      if (!uri) {
+        onLoaded?.();
+        return;
+      }
 
       const { sound } = await Audio.Sound.createAsync(
         { uri },
@@ -414,6 +426,9 @@ class AudioService {
       );
 
       this.previewSound = sound;
+
+      // Data is loaded, clear loading state before fadeIn
+      onLoaded?.();
 
       // Fade in over 2 seconds
       this.fadeIn(sound, 2000);
@@ -427,6 +442,7 @@ class AudioService {
       });
     } catch (error) {
       console.error('Failed to preview bell sound:', error);
+      onLoaded?.();
     }
   }
 }

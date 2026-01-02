@@ -6,6 +6,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SlotCarousel } from '../components';
 import { usePreferencesStore } from '../store/preferencesStore';
@@ -24,16 +25,32 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
   // Find matching sample or default to first
   const initialId = SAMPLE_ASSETS.find(s => s.id === storeAmbienceId)?.id || SAMPLE_ASSETS[0].id;
   const [localAmbienceId, setLocalAmbienceId] = useState<string>(initialId);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
 
   // Register sample assets with audio service
   React.useEffect(() => {
     audioService.setAssets(SAMPLE_ASSETS, []);
   }, []);
 
-  const handleAmbienceSelect = async (id: string) => {
+  // Stop preview when leaving screen (handles swipe-back and header back button)
+  React.useEffect(() => {
+    return () => {
+      audioService.stopPreview();
+    };
+  }, []);
+
+  const handleAmbienceSelect = (id: string) => {
     setLocalAmbienceId(id);
-    await audioService.stopPreview();
-    await audioService.previewAmbient(id);
+
+    // Toggle off if clicking currently playing item
+    if (audioService.isPreviewPlaying(id)) {
+      audioService.stopPreview();
+      return;
+    }
+
+    // Play new item with loading indicator (clears when data loads, not when fadeIn ends)
+    setLoadingId(id);
+    audioService.previewAmbient(id, () => setLoadingId(null));
   };
 
   const handleBack = async () => {
@@ -57,13 +74,14 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
             assets={SAMPLE_ASSETS}
             selectedId={localAmbienceId}
             onSelect={handleAmbienceSelect}
+            loadingId={loadingId}
           />
         </View>
       </View>
 
       <View style={styles.footer}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack} activeOpacity={0.7}>
-          <Text style={styles.backButtonText}>Back</Text>
+          <Feather name="chevron-left" size={22} color={COLORS.textSecondary} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} activeOpacity={0.7}>
           <Text style={styles.submitButtonText}>Submit</Text>
@@ -96,28 +114,26 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    gap: 12,
+    gap: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.border,
   },
   backButton: {
-    flex: 1,
-    paddingVertical: 14,
+    width: 48,
+    height: 48,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: COLORS.border,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  backButtonText: {
-    color: COLORS.text,
-    fontSize: FONTS.size.medium,
-    fontWeight: FONTS.medium,
-  },
   submitButton: {
-    flex: 1,
     paddingVertical: 14,
+    paddingHorizontal: 50,
     borderRadius: 8,
     backgroundColor: COLORS.text,
     alignItems: 'center',

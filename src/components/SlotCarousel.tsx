@@ -8,6 +8,7 @@ import {
   NativeScrollEvent,
   TouchableOpacity,
   useWindowDimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { Asset } from '../types';
 import { COLORS, FONTS } from '../constants/theme';
@@ -18,6 +19,7 @@ interface SlotCarouselProps {
   selectedId: string;
   onSelect: (id: string) => void;
   compact?: boolean;
+  loadingId?: string | null;
 }
 
 const SIZES = {
@@ -26,7 +28,7 @@ const SIZES = {
 };
 const REPEATS = 100;
 
-export function SlotCarousel({ assets, selectedId, onSelect, compact = false }: SlotCarouselProps) {
+export function SlotCarousel({ assets, selectedId, onSelect, compact = false, loadingId }: SlotCarouselProps) {
   const { itemSize, itemGap, offsetAdjust } = compact ? SIZES.compact : SIZES.normal;
   const itemTotal = itemSize + itemGap;
 
@@ -100,6 +102,7 @@ export function SlotCarousel({ assets, selectedId, onSelect, compact = false }: 
 
   const renderItem = useCallback(({ item, index: flatIndex }: { item: { asset: Asset; index: number }; index: number }) => {
     const isSelected = item.asset.id === selectedId;
+    const isLoading = item.asset.id === loadingId;
 
     return (
       <TouchableOpacity
@@ -114,10 +117,15 @@ export function SlotCarousel({ assets, selectedId, onSelect, compact = false }: 
           ]}
         >
           <CachedImage asset={item.asset} />
+          {isLoading && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color={COLORS.text} />
+            </View>
+          )}
         </View>
       </TouchableOpacity>
     );
-  }, [selectedId, itemTotal, itemSize, compact]);
+  }, [selectedId, loadingId, itemTotal, itemSize, compact]);
 
   const getItemLayout = useCallback((_: any, index: number) => ({
     length: itemTotal,
@@ -157,6 +165,12 @@ const styles = StyleSheet.create({
   },
   dimmedImage: {
     opacity: 0.35,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   labelContainer: {
     width: '100%',
