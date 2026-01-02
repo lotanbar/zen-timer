@@ -8,3 +8,5 @@ export { RepeatingBellOptions } from './RepeatingBellOptions';
 export { CachedImage } from './CachedImage';
 export { CategoryTags } from './CategoryTags';
 export { SearchBar } from './SearchBar';
+export { StepButton } from './StepButton';
+export type { StepButtonRef } from './StepButton';

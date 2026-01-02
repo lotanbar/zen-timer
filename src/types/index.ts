@@ -57,5 +57,8 @@ export interface SessionStats {
 
 export type RootStackParamList = {
   Home: undefined;
+  Duration: undefined;
+  Ambience: undefined;
+  Bell: undefined;
   Timer: undefined;
 };

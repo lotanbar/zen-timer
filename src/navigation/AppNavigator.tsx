@@ -1,6 +1,12 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { HomeScreen, TimerScreen } from '../screens';
+import {
+  HomeScreen,
+  TimerScreen,
+  DurationScreen,
+  AmbienceScreen,
+  BellScreen,
+} from '../screens';
 import { COLORS } from '../constants/theme';
 import { RootStackParamList } from '../types';
 
@@ -16,6 +22,9 @@ export function AppNavigator() {
       }}
     >
       <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen name="Duration" component={DurationScreen} />
+      <Stack.Screen name="Ambience" component={AmbienceScreen} />
+      <Stack.Screen name="Bell" component={BellScreen} />
       <Stack.Screen name="Timer" component={TimerScreen} />
     </Stack.Navigator>
   );
