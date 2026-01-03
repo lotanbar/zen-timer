@@ -1,12 +1,16 @@
 import { Audio, AVPlaybackStatus } from 'expo-av';
 import { Asset } from '../types';
 import { assetCacheService } from './assetCacheService';
+import { debugLog } from './debugLogService';
 
 const FADE_DURATION = 400;
 const FADE_STEPS = 20;
 
 // Path to bundled silent audio for background timer
 const SILENCE_AUDIO = require('../../assets/silence.mp3');
+
+// DEBUG: 5-second test loop for diagnosing looping issues
+const TEST_LOOP_5S = require('../../assets/test_loop_5s.mp3');
 
 type TimerCallback = () => void;
 
@@ -34,6 +38,10 @@ class AudioService {
   private playedBellTimes: Set<number> = new Set();
   private timerBellId: string | null = null;
 
+  // BACKUP: JS interval as fallback monitor (in case expo-av callbacks stop)
+  private backupIntervalId: NodeJS.Timeout | null = null;
+  private lastCallbackTime: number = 0;
+
   // Asset registry - populated dynamically
   private ambientAssets: Asset[] = [];
   private bellAssets: Asset[] = [];
@@ -60,7 +68,13 @@ class AudioService {
     this.bellAssets = bells;
   }
 
-  private getAudioUri(assetId: string, type: 'ambient' | 'bell'): string | null {
+  private getAudioUri(assetId: string, type: 'ambient' | 'bell'): string | number | null {
+    // Special case: bundled test track
+    if (assetId === 'debug_test_5s') {
+      console.log('[AudioService] 🔧 Using bundled 5-second test track');
+      return TEST_LOOP_5S;
+    }
+
     const assets = type === 'ambient' ? this.ambientAssets : this.bellAssets;
     const asset = assets.find((a) => a.id === assetId);
     if (!asset) return null;
@@ -70,6 +84,8 @@ class AudioService {
   }
 
   async playAmbient(assetId: string): Promise<void> {
+    debugLog.log('Ambient', `🎬 playAmbient: ${assetId}`);
+
     // Skip if same ambient is already playing
     if (this.currentAmbientId === assetId && this.ambientSound) {
       return;
@@ -80,19 +96,26 @@ class AudioService {
     try {
       await this.stopAmbient();
 
-      const uri = this.getAudioUri(assetId, 'ambient');
-      if (!uri) return;
+      const source = this.getAudioUri(assetId, 'ambient');
+      if (!source) {
+        debugLog.log('Ambient', '❌ No URI found');
+        return;
+      }
+      const isBundled = typeof source === 'number';
+      debugLog.log('Ambient', `📍 Loading: ${isBundled ? 'BUNDLED' : 'STREAM'}`);
 
       // Note: isLooping doesn't work reliably for streamed remote audio,
       // so we manually handle looping via setOnPlaybackStatusUpdate
-      const { sound } = await Audio.Sound.createAsync(
-        { uri },
+      const { sound, status } = await Audio.Sound.createAsync(
+        isBundled ? source : { uri: source },
         { isLooping: true, shouldPlay: true, volume: 0 }
       );
 
+      const loadedStatus = status as any;
+      debugLog.log('Ambient', `✅ Created | duration=${loadedStatus.durationMillis ? Math.round(loadedStatus.durationMillis/1000) + 's' : '?'}`);
+
       // Check if this request is still current (handles rapid selection)
       if (requestId !== this.ambientRequestId) {
-        console.log('[Ambient] Stale request, unloading sound');
         sound.setOnPlaybackStatusUpdate(null);
         sound.unloadAsync().catch(() => {});
         return;
@@ -104,26 +127,29 @@ class AudioService {
       // Manual loop fallback: restart when sound finishes (in case isLooping fails for remote audio)
       sound.setOnPlaybackStatusUpdate((status) => {
         if (!status.isLoaded) {
-          console.log('[Ambient] Status update: not loaded', status);
+          debugLog.log('Ambient', '⚠️ Callback: not loaded');
           return;
         }
+
+        const pos = (status as any).positionMillis ?? 0;
+        const dur = (status as any).durationMillis ?? 0;
+
         if (status.didJustFinish) {
-          console.log('[Ambient] didJustFinish, attempting restart...');
+          debugLog.log('Ambient', `🏁 didJustFinish! pos=${Math.round(pos/1000)}s / dur=${Math.round(dur/1000)}s`);
           if (this.ambientSound === sound) {
+            debugLog.log('Ambient', '🔄 Restarting from callback...');
             sound.setPositionAsync(0)
               .then(() => sound.playAsync())
-              .then(() => console.log('[Ambient] Restarted successfully'))
-              .catch((err) => console.error('[Ambient] Restart failed:', err));
-          } else {
-            console.log('[Ambient] Sound reference mismatch, skipping restart');
+              .then(() => debugLog.log('Ambient', '✅ Restarted from callback'))
+              .catch((err) => debugLog.log('Ambient', `❌ Callback restart failed: ${err}`));
           }
         }
       });
 
-      // Fade in like preview
+      // Fade in
       this.fadeIn(sound, FADE_DURATION);
     } catch (error) {
-      console.error('Failed to play ambient sound:', error);
+      debugLog.log('Ambient', `❌ Failed: ${error}`);
     }
   }
 
@@ -276,6 +302,9 @@ class AudioService {
     bellTimes: number[],
     onComplete: TimerCallback
   ): Promise<void> {
+    debugLog.log('Timer', `🚀 startTimer | duration=${durationSeconds}s | bellId=${bellId} | bellTimes=${JSON.stringify(bellTimes)}`);
+    debugLog.log('Timer', `📊 State: ambientSound=${!!this.ambientSound} | ambientId=${this.currentAmbientId}`);
+
     await this.stopTimer();
 
     this.timerStartTime = Date.now();
@@ -285,27 +314,150 @@ class AudioService {
     this.scheduledBellTimes = bellTimes;
     this.playedBellTimes = new Set();
     this.timerBellId = bellId;
+    this.ambientCheckCount = 0;
+    this.lastAmbientLogTime = 0;
+    this.lastCallbackTime = Date.now();
 
     try {
+      debugLog.log('Timer', '🔇 Creating silent audio for background callbacks...');
       const { sound } = await Audio.Sound.createAsync(
         SILENCE_AUDIO,
         { isLooping: true, shouldPlay: true }
       );
 
       this.timerSound = sound;
+      debugLog.log('Timer', '✅ Silent audio started, expo-av callbacks active');
 
       // This callback fires even in background!
       sound.setOnPlaybackStatusUpdate(this.handleTimerUpdate);
+
+      // BACKUP: Start JS interval as secondary monitor
+      // This catches cases where expo-av callbacks stop firing
+      this.startBackupMonitor();
     } catch (error) {
-      console.error('Failed to start timer audio:', error);
+      debugLog.log('Timer', `❌ Failed to start timer audio: ${error}`);
     }
   }
 
+  // Backup JS interval that runs independently of expo-av
+  private startBackupMonitor(): void {
+    this.stopBackupMonitor();
+
+    debugLog.log('Backup', '🛡️ Starting backup JS interval monitor (every 3s)');
+
+    this.backupIntervalId = setInterval(async () => {
+      if (this.timerCompleted) return;
+
+      const now = Date.now();
+      const timeSinceLastCallback = now - this.lastCallbackTime;
+      const elapsedSeconds = Math.floor((now - this.timerStartTime) / 1000);
+
+      // If expo-av callback hasn't fired in 5+ seconds, something is wrong
+      if (timeSinceLastCallback > 5000) {
+        debugLog.log('Backup', `⚠️ CALLBACK STALL DETECTED! Last callback ${Math.round(timeSinceLastCallback/1000)}s ago | elapsed=${elapsedSeconds}s`);
+
+        // Try to restart the timer sound
+        if (this.timerSound) {
+          try {
+            const status = await this.timerSound.getStatusAsync();
+            debugLog.log('Backup', `Timer sound status: isLoaded=${status.isLoaded} isPlaying=${(status as any).isPlaying}`);
+
+            if (status.isLoaded && !(status as any).isPlaying) {
+              debugLog.log('Backup', '🔧 Timer sound stopped, restarting...');
+              await this.timerSound.playAsync();
+              debugLog.log('Backup', '✅ Timer sound restarted');
+            }
+          } catch (err) {
+            debugLog.log('Backup', `❌ Failed to check/restart timer: ${err}`);
+          }
+        }
+
+        // Also check ambient sound
+        await this.checkAndRestartAmbient('Backup');
+      }
+
+      // Periodic ambient check regardless
+      if (this.ambientSound && this.currentAmbientId) {
+        try {
+          const ambientStatus = await this.ambientSound.getStatusAsync();
+          if (ambientStatus.isLoaded && !(ambientStatus as any).isPlaying && !this.isPreparingNextLoop) {
+            debugLog.log('Backup', `⚠️ Ambient not playing (backup check) | pos=${(ambientStatus as any).positionMillis}`);
+            await this.checkAndRestartAmbient('Backup-Periodic');
+          }
+        } catch (err) {
+          debugLog.log('Backup', `⚠️ Ambient check failed: ${err}`);
+        }
+      }
+    }, 3000);
+  }
+
+  private stopBackupMonitor(): void {
+    if (this.backupIntervalId) {
+      clearInterval(this.backupIntervalId);
+      this.backupIntervalId = null;
+      debugLog.log('Backup', '🛑 Backup monitor stopped');
+    }
+  }
+
+  // Shared method to check and restart ambient sound
+  private async checkAndRestartAmbient(source: string): Promise<void> {
+    if (!this.ambientSound || !this.currentAmbientId) return;
+
+    try {
+      const status = await this.ambientSound.getStatusAsync();
+      if (!status.isLoaded) {
+        debugLog.log(source, '⚠️ Ambient not loaded, recreating...');
+        const assetId = this.currentAmbientId;
+        this.ambientSound = null;
+        this.currentAmbientId = null;
+        await this.playAmbient(assetId);
+        return;
+      }
+
+      if (!(status as any).isPlaying && !this.isPreparingNextLoop) {
+        debugLog.log(source, `🔧 Ambient stopped at pos=${(status as any).positionMillis}, restarting...`);
+        await this.ambientSound.setPositionAsync(0);
+        await this.ambientSound.playAsync();
+        debugLog.log(source, '✅ Ambient restarted');
+      }
+    } catch (err: any) {
+      if (err?.code === 'E_AUDIO_NOPLAYER') {
+        debugLog.log(source, '🔧 Native player destroyed, recreating...');
+        const assetId = this.currentAmbientId;
+        this.ambientSound = null;
+        this.currentAmbientId = null;
+        this.isPreparingNextLoop = false;
+        await this.playAmbient(assetId);
+      } else {
+        debugLog.log(source, `❌ Failed to restart ambient: ${err}`);
+      }
+    }
+  }
+
+  // Track last log time to avoid spam
+  private lastAmbientLogTime: number = 0;
+  private ambientCheckCount: number = 0;
+
   private handleTimerUpdate = async (status: AVPlaybackStatus): Promise<void> => {
-    if (!status.isLoaded || this.timerCompleted) return;
+    // Track that callback fired (for backup monitor)
+    this.lastCallbackTime = Date.now();
+
+    if (!status.isLoaded) {
+      debugLog.log('Timer', '❌ Timer status not loaded');
+      return;
+    }
+    if (this.timerCompleted) return;
 
     const elapsedMs = Date.now() - this.timerStartTime;
     const elapsedSeconds = Math.floor(elapsedMs / 1000);
+    this.ambientCheckCount++;
+
+    // Log timer heartbeat every 30 seconds (reduced frequency for file logs)
+    const now = Date.now();
+    if (now - this.lastAmbientLogTime >= 30000) {
+      debugLog.log('Timer', `💓 Heartbeat #${this.ambientCheckCount} | elapsed=${elapsedSeconds}s | ambient=${!!this.ambientSound}`);
+      this.lastAmbientLogTime = now;
+    }
 
     // CRITICAL: Monitor ambient sound for looping and recovery
     // The ambient sound's own callback may not fire in background, but this timer callback does
@@ -315,23 +467,31 @@ class AudioService {
         if (ambientStatus.isLoaded) {
           const position = ambientStatus.positionMillis ?? 0;
           const duration = ambientStatus.durationMillis ?? 0;
+          const isPlaying = ambientStatus.isPlaying;
+          const didJustFinish = (ambientStatus as any).didJustFinish;
+
+          // Log important state changes to file
+          if (!isPlaying || didJustFinish) {
+            debugLog.log('Timer', `🎵 Ambient: pos=${Math.round(position/1000)}s / dur=${Math.round(duration/1000)}s | playing=${isPlaying} | didJustFinish=${didJustFinish} | nextReady=${!!this.ambientSoundNext}`);
+          }
 
           // Seamless loop: pre-load next track, then overlap-swap
           // Phase 1: Pre-load next track 3 seconds before end (paused, ready to go)
           if (duration > 0 && position >= duration - 3000 && !this.ambientSoundNext && !this.isPreparingNextLoop) {
             this.isPreparingNextLoop = true;
-            const uri = this.getAudioUri(this.currentAmbientId, 'ambient');
-            if (uri) {
+            const source = this.getAudioUri(this.currentAmbientId, 'ambient');
+            if (source) {
               try {
-                console.log('[Timer] Pre-loading next loop at', position, '/', duration);
+                const isBundled = typeof source === 'number';
+                debugLog.log('Timer', `🔄 Pre-loading next loop at pos=${Math.round(position/1000)}s / dur=${Math.round(duration/1000)}s`);
                 const { sound: nextSound } = await Audio.Sound.createAsync(
-                  { uri },
+                  isBundled ? source : { uri: source },
                   { isLooping: false, shouldPlay: false, volume: 1.0 }
                 );
                 this.ambientSoundNext = nextSound;
-                console.log('[Timer] Next loop pre-loaded and ready');
+                debugLog.log('Timer', '✅ Next loop pre-loaded');
               } catch (createErr) {
-                console.error('[Timer] Failed to pre-load next loop:', createErr);
+                debugLog.log('Timer', `❌ Failed to pre-load next loop: ${createErr}`);
               }
             }
             this.isPreparingNextLoop = false;
@@ -339,7 +499,7 @@ class AudioService {
 
           // Phase 2: Start new sound 500ms before end, let them overlap briefly
           if (duration > 0 && position >= duration - 500 && this.ambientSoundNext) {
-            console.log('[Timer] Starting overlap swap at', position, '/', duration);
+            debugLog.log('Timer', `🔀 Overlap swap at pos=${Math.round(position/1000)}s / dur=${Math.round(duration/1000)}s`);
             const oldSound = this.ambientSound;
             const nextSound = this.ambientSoundNext;
 
@@ -349,6 +509,7 @@ class AudioService {
 
             // Start new sound and WAIT for it to actually begin playing
             await nextSound.playAsync();
+            debugLog.log('Timer', '✅ Swap complete, new sound playing');
 
             // Now new sound is playing - instantly mute old sound (no audible overlap)
             if (oldSound) {
@@ -357,31 +518,28 @@ class AudioService {
               // Clean up in background
               oldSound.stopAsync().then(() => oldSound.unloadAsync()).catch(() => {});
             }
-            console.log('[Timer] Swap complete');
           }
           // Also restart if stopped unexpectedly
-          else if (!ambientStatus.isPlaying && !this.isPreparingNextLoop) {
-            console.log('[Timer] Ambient stopped, restarting from position', position);
+          else if (!isPlaying && !this.isPreparingNextLoop) {
+            debugLog.log('Timer', `⚠️ AMBIENT STOPPED! pos=${Math.round(position/1000)}s / dur=${Math.round(duration/1000)}s | Restarting...`);
             await this.ambientSound.setPositionAsync(0);
             await this.ambientSound.playAsync();
-            console.log('[Timer] Ambient restarted successfully');
+            debugLog.log('Timer', '✅ Ambient restarted');
           }
+        } else {
+          debugLog.log('Timer', '⚠️ Ambient status not loaded!');
         }
       } catch (err: any) {
         // Native player was destroyed (e.g., screen off killed it)
-        // Need to recreate the sound from scratch
+        debugLog.log('Timer', `❌ Error checking ambient: ${err?.code} ${err?.message || err}`);
         if (err?.code === 'E_AUDIO_NOPLAYER') {
-          console.log('[Timer] Native player destroyed, recreating ambient sound...');
+          debugLog.log('Timer', '🔧 Native player destroyed, recreating...');
           const assetId = this.currentAmbientId;
-          // Clear old references
           this.ambientSound = null;
           this.currentAmbientId = null;
           this.isPreparingNextLoop = false;
-          // Recreate the sound
           await this.playAmbient(assetId);
-          console.log('[Timer] Ambient sound recreated successfully');
-        } else {
-          console.error('[Timer] Failed to check/restart ambient:', err);
+          debugLog.log('Timer', '✅ Ambient recreated');
         }
       }
     }
@@ -422,8 +580,12 @@ class AudioService {
   };
 
   async stopTimer(): Promise<void> {
+    debugLog.log('Timer', '🛑 stopTimer called');
     this.timerCallback = null;
     this.timerBellId = null;
+
+    // Stop backup monitor
+    this.stopBackupMonitor();
 
     if (this.timerSound) {
       try {
@@ -436,6 +598,9 @@ class AudioService {
         this.timerSound = null;
       }
     }
+
+    // Flush logs to disk
+    debugLog.forceFlush();
   }
 
   isTimerCompleted(): boolean {
@@ -542,15 +707,16 @@ class AudioService {
     try {
       await this.stopPreview();
 
-      const uri = this.getAudioUri(assetId, 'ambient');
-      if (!uri) {
+      const source = this.getAudioUri(assetId, 'ambient');
+      if (!source) {
         onLoaded?.();
         return;
       }
+      const isBundled = typeof source === 'number';
 
       // Note: isLooping doesn't work reliably for streamed remote audio
       const { sound } = await Audio.Sound.createAsync(
-        { uri },
+        isBundled ? source : { uri: source },
         { shouldPlay: true, isLooping: true, volume: 0 }
       );
 
@@ -644,3 +810,6 @@ class AudioService {
 }
 
 export const audioService = new AudioService();
+
+// Export debug log access for debugging
+export { debugLog } from './debugLogService';
