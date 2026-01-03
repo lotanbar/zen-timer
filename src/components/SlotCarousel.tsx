@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useMemo, useEffect } from 'react';
+import React, { useRef, useCallback, useMemo, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,8 +7,8 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   TouchableOpacity,
-  useWindowDimensions,
   ActivityIndicator,
+  LayoutChangeEvent,
 } from 'react-native';
 import { Asset } from '../types';
 import { COLORS, FONTS } from '../constants/theme';
@@ -23,19 +23,22 @@ interface SlotCarouselProps {
 }
 
 const SIZES = {
-  normal: { itemSize: 200, itemGap: 32, offsetAdjust: -16 },
-  compact: { itemSize: 140, itemGap: 48, offsetAdjust: -24 },
+  normal: { itemSize: 200, itemGap: 32 },
+  compact: { itemSize: 140, itemGap: 48 },
 };
 const REPEATS = 100;
 
 export function SlotCarousel({ assets, selectedId, onSelect, compact = false, loadingId }: SlotCarouselProps) {
-  const { itemSize, itemGap, offsetAdjust } = compact ? SIZES.compact : SIZES.normal;
+  const { itemSize, itemGap } = compact ? SIZES.compact : SIZES.normal;
   const itemTotal = itemSize + itemGap;
 
-  const { width: screenWidth } = useWindowDimensions();
-  // Center the selected item on screen
-  // sidePadding = distance from edge to start of first item when centered
-  const sidePadding = (screenWidth - itemTotal) / 2 + offsetAdjust;
+  const [containerWidth, setContainerWidth] = useState(0);
+  // Center the selected item - use actual container width for proper centering
+  const sidePadding = containerWidth > 0 ? (containerWidth - itemTotal) / 2 : 0;
+
+  const handleContainerLayout = (event: LayoutChangeEvent) => {
+    setContainerWidth(event.nativeEvent.layout.width);
+  };
 
   const listRef = useRef<FlatList>(null);
   const hasScrolledRef = useRef(false);
@@ -52,6 +55,12 @@ export function SlotCarousel({ assets, selectedId, onSelect, compact = false, lo
     }
     return result;
   }, [assets]);
+
+  // Exact snap offsets - same positions as scrollToOffset uses
+  const snapOffsets = useMemo(() => {
+    const totalItems = REPEATS * assets.length;
+    return Array.from({ length: totalItems }, (_, i) => i * itemTotal);
+  }, [assets.length, itemTotal]);
 
   // Start in the middle
   const middleStartIndex = Math.floor(REPEATS / 2) * assets.length + selectedIndex;
@@ -79,7 +88,7 @@ export function SlotCarousel({ assets, selectedId, onSelect, compact = false, lo
     }
   }, [compact, itemTotal, middleStartIndex, selectedIndex]);
 
-  const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+  const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetX = event.nativeEvent.contentOffset.x;
     const index = Math.round(offsetX / itemTotal);
     const realIndex = ((index % assets.length) + assets.length) % assets.length;
@@ -134,22 +143,24 @@ export function SlotCarousel({ assets, selectedId, onSelect, compact = false, lo
   }), [itemTotal]);
 
   return (
-    <View style={styles.container}>
-      <FlatList
-        ref={listRef}
-        data={repeatedAssets}
-        renderItem={renderItem}
-        keyExtractor={(_, index) => index.toString()}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        snapToInterval={itemTotal}
-        decelerationRate={0.985}
-        onMomentumScrollEnd={handleScrollEnd}
-        onLayout={handleLayout}
-        getItemLayout={getItemLayout}
-        contentContainerStyle={{ paddingHorizontal: sidePadding }}
-        initialScrollIndex={middleStartIndex}
-      />
+    <View style={styles.container} onLayout={handleContainerLayout}>
+      {containerWidth > 0 && (
+        <FlatList
+          ref={listRef}
+          data={repeatedAssets}
+          renderItem={renderItem}
+          keyExtractor={(_, index) => index.toString()}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          snapToOffsets={snapOffsets}
+          decelerationRate={0.985}
+          onMomentumScrollEnd={handleMomentumScrollEnd}
+          onLayout={handleLayout}
+          getItemLayout={getItemLayout}
+          contentContainerStyle={{ paddingHorizontal: sidePadding }}
+          initialScrollIndex={middleStartIndex}
+        />
+      )}
       <View style={styles.labelContainer}>
         <Text style={[styles.label, compact && styles.labelCompact]}>{currentAsset?.displayName ?? ''}</Text>
       </View>
@@ -159,7 +170,6 @@ export function SlotCarousel({ assets, selectedId, onSelect, compact = false, lo
 
 const styles = StyleSheet.create({
   container: {
-    alignItems: 'center',
     backgroundColor: COLORS.background,
     paddingVertical: 20,
   },
