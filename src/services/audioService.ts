@@ -21,6 +21,7 @@ class AudioService {
   private currentAmbientId: string | null = null;
   private initialized = false;
   private isPreparingNextLoop: boolean = false; // Prevent multiple crossfade attempts
+  private isAmbientPaused: boolean = false; // Track intentional pause state
 
   // Request counters to handle race conditions during rapid selection
   private previewRequestId: number = 0;
@@ -145,6 +146,7 @@ class AudioService {
 
   async stopAmbient(): Promise<void> {
     this.isPreparingNextLoop = false;
+    this.isAmbientPaused = false;
 
     // Stop main ambient sound
     if (this.ambientSound) {
@@ -200,6 +202,7 @@ class AudioService {
   async pauseAmbient(): Promise<void> {
     if (this.ambientSound) {
       try {
+        this.isAmbientPaused = true;
         await this.ambientSound.pauseAsync();
         debugLog.log('Ambient', '⏸️ Paused');
       } catch (error) {
@@ -211,6 +214,7 @@ class AudioService {
   async resumeAmbient(): Promise<void> {
     if (this.ambientSound) {
       try {
+        this.isAmbientPaused = false;
         await this.ambientSound.playAsync();
         debugLog.log('Ambient', '▶️ Resumed');
       } catch (error) {
@@ -388,8 +392,8 @@ class AudioService {
         await this.checkAndRestartAmbient('Backup');
       }
 
-      // Periodic ambient check regardless
-      if (this.ambientSound && this.currentAmbientId) {
+      // Periodic ambient check regardless (but not if intentionally paused)
+      if (this.ambientSound && this.currentAmbientId && !this.isAmbientPaused) {
         try {
           const ambientStatus = await this.ambientSound.getStatusAsync();
           if (ambientStatus.isLoaded && !(ambientStatus as any).isPlaying && !this.isPreparingNextLoop) {
@@ -413,7 +417,7 @@ class AudioService {
 
   // Shared method to check and restart ambient sound
   private async checkAndRestartAmbient(source: string): Promise<void> {
-    if (!this.ambientSound || !this.currentAmbientId) return;
+    if (!this.ambientSound || !this.currentAmbientId || this.isAmbientPaused) return;
 
     try {
       const status = await this.ambientSound.getStatusAsync();
@@ -530,8 +534,8 @@ class AudioService {
               oldSound.stopAsync().then(() => oldSound.unloadAsync()).catch(() => {});
             }
           }
-          // Also restart if stopped unexpectedly
-          else if (!isPlaying && !this.isPreparingNextLoop) {
+          // Also restart if stopped unexpectedly (but not if intentionally paused)
+          else if (!isPlaying && !this.isPreparingNextLoop && !this.isAmbientPaused) {
             debugLog.log('Timer', `⚠️ AMBIENT STOPPED! pos=${Math.round(position/1000)}s / dur=${Math.round(duration/1000)}s | Restarting...`);
             await this.ambientSound.setPositionAsync(0);
             await this.ambientSound.playAsync();

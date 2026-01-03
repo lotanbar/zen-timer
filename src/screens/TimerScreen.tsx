@@ -73,12 +73,25 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
     navigation.goBack();
   }, [totalSeconds, ambienceId, bellId, addSession, navigation]);
 
-  // Handle app state changes (background/foreground) to update display
+  // Handle app state changes - auto-pause when backgrounded, update display when foregrounded
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'active' && !isCompletedRef.current) {
+      if (isCompletedRef.current) return;
+
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // Auto-pause when app goes to background
+        if (!isPaused) {
+          pauseStartRef.current = Date.now();
+          setIsPaused(true);
+          audioService.pauseAmbient();
+        }
+      } else if (nextAppState === 'active') {
         // Recalculate remaining time for display
-        const elapsedMs = Date.now() - startTimeRef.current;
+        let totalPausedMs = pausedTimeRef.current;
+        if (pauseStartRef.current) {
+          totalPausedMs += Date.now() - pauseStartRef.current;
+        }
+        const elapsedMs = Date.now() - startTimeRef.current - totalPausedMs;
         const elapsedSeconds = Math.floor(elapsedMs / 1000);
         const newRemaining = Math.max(0, totalSeconds - elapsedSeconds);
         setRemaining(newRemaining);
@@ -92,7 +105,7 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
-  }, [totalSeconds, handleComplete]);
+  }, [totalSeconds, handleComplete, isPaused]);
 
   useEffect(() => {
     isMountedRef.current = true;
