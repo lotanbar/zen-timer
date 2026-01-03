@@ -6,6 +6,7 @@ import {
   StyleSheet,
   AppState,
   AppStateStatus,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -37,6 +38,7 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   // Keep screen awake during meditation
   useKeepAwake();
 
+  const { width: screenWidth } = useWindowDimensions();
   const { duration, ambienceId, bellId, repeatBell } = usePreferencesStore();
   const { addSession } = useSessionStore();
   const totalSeconds = getTotalSeconds(duration);
@@ -203,7 +205,13 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.timerContainer}>
-        <Text style={styles.timer}>{formatTime(remaining)}</Text>
+        <Text
+          style={[styles.timer, { fontSize: screenWidth * 0.4 }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
+          {formatTime(remaining)}
+        </Text>
       </View>
       <View style={styles.footer}>
         <TouchableOpacity
@@ -237,7 +245,6 @@ const styles = StyleSheet.create({
   },
   timer: {
     color: COLORS.text,
-    fontSize: 160,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
     letterSpacing: -4,

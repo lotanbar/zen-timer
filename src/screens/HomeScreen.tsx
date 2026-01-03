@@ -35,7 +35,7 @@ function formatDuration(hours: number, minutes: number, seconds: number): string
 }
 
 function getRandomInterval() {
-  return 3000 + Math.random() * 2000; // 3-5 seconds
+  return 3000 + Math.random() * 3000; // 3-6 seconds
 }
 
 export function HomeScreen({ navigation }: HomeScreenProps) {
@@ -69,21 +69,43 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     loadAssets();
   }, []);
 
-  // Random pulse effect to make app feel alive
+  // Two independent pulse timers so multiple buttons can light up at once
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId1: NodeJS.Timeout;
+    let timeoutId2: NodeJS.Timeout;
+    let lastIndex1 = -1;
+    let lastIndex2 = -1;
 
-    const scheduleNextPulse = () => {
-      timeoutId = setTimeout(() => {
-        const randomIndex = Math.floor(Math.random() * buttonRefs.length);
-        buttonRefs[randomIndex].current?.pulse();
-        scheduleNextPulse();
+    const getAvailableIndex = (excludeIndex: number): number => {
+      const available = [0, 1, 2].filter(i => i !== excludeIndex);
+      return available[Math.floor(Math.random() * available.length)];
+    };
+
+    const scheduleNextPulse1 = () => {
+      timeoutId1 = setTimeout(() => {
+        const index = getAvailableIndex(lastIndex2);
+        lastIndex1 = index;
+        buttonRefs[index].current?.pulse();
+        scheduleNextPulse1();
       }, getRandomInterval());
     };
 
-    scheduleNextPulse();
+    const scheduleNextPulse2 = () => {
+      timeoutId2 = setTimeout(() => {
+        const index = getAvailableIndex(lastIndex1);
+        lastIndex2 = index;
+        buttonRefs[index].current?.pulse();
+        scheduleNextPulse2();
+      }, getRandomInterval());
+    };
 
-    return () => clearTimeout(timeoutId);
+    scheduleNextPulse1();
+    scheduleNextPulse2();
+
+    return () => {
+      clearTimeout(timeoutId1);
+      clearTimeout(timeoutId2);
+    };
   }, []);
 
   const selectedAmbience = SAMPLE_ASSETS.find(a => a.id === ambienceId);
