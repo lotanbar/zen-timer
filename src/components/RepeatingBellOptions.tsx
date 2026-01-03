@@ -95,6 +95,7 @@ export function RepeatingBellOptions({
 const styles = StyleSheet.create({
   container: {
     paddingTop: 16,
+    paddingBottom: 20,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.border,
   },

@@ -6,7 +6,6 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { SlotCarousel } from '../components';
@@ -56,12 +55,7 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
     audioService.previewAmbient(id, () => setLoadingId(null));
   };
 
-  const handleBack = async () => {
-    await audioService.stopPreview();
-    navigation.goBack();
-  };
-
-  const handleSubmit = async () => {
+  const handleSelect = async () => {
     setAmbience(localAmbienceId);
     await audioService.stopPreview();
     navigation.goBack();
@@ -83,11 +77,8 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
       </View>
 
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack} activeOpacity={0.7}>
-          <Feather name="chevron-left" size={22} color={COLORS.textSecondary} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} activeOpacity={0.7}>
-          <Text style={styles.submitButtonText}>Submit</Text>
+        <TouchableOpacity style={styles.selectButton} onPress={handleSelect} activeOpacity={0.7}>
+          <Text style={styles.selectButtonText}>Select</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -116,32 +107,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   footer: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    gap: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.border,
   },
-  backButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  submitButton: {
+  selectButton: {
     paddingVertical: 14,
     paddingHorizontal: 50,
     borderRadius: 8,
     backgroundColor: COLORS.text,
     alignItems: 'center',
   },
-  submitButtonText: {
+  selectButtonText: {
     color: COLORS.background,
     fontSize: FONTS.size.medium,
     fontWeight: FONTS.semibold,

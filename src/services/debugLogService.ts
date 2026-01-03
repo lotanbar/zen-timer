@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 const LOG_FILE = `${FileSystem.documentDirectory}audio_debug.log`;
 const MAX_LOG_SIZE = 500 * 1024; // 500KB max, then rotate
