@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "ZenTimer",
+    "name": "Alona",
     "slug": "ZenTimer",
-    "version": "1.0.0",
+    "version": "2.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -21,7 +21,8 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.allhailalona.ZenTimer"
     },
     "web": {
       "favicon": "./assets/favicon.png"

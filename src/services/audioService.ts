@@ -12,12 +12,18 @@ type TimerCallback = () => void;
 
 class AudioService {
   private ambientSound: Audio.Sound | null = null;
+  private ambientSoundNext: Audio.Sound | null = null; // For crossfade looping
   private bellSounds: Set<Audio.Sound> = new Set();
   private previewSound: Audio.Sound | null = null;
   private timerSound: Audio.Sound | null = null;
   private currentPreviewId: string | null = null;
   private currentAmbientId: string | null = null;
   private initialized = false;
+  private isPreparingNextLoop: boolean = false; // Prevent multiple crossfade attempts
+
+  // Request counters to handle race conditions during rapid selection
+  private previewRequestId: number = 0;
+  private ambientRequestId: number = 0;
 
   // Timer state
   private timerStartTime: number = 0;
@@ -69,19 +75,50 @@ class AudioService {
       return;
     }
 
+    const requestId = ++this.ambientRequestId;
+
     try {
       await this.stopAmbient();
 
       const uri = this.getAudioUri(assetId, 'ambient');
       if (!uri) return;
 
+      // Note: isLooping doesn't work reliably for streamed remote audio,
+      // so we manually handle looping via setOnPlaybackStatusUpdate
       const { sound } = await Audio.Sound.createAsync(
         { uri },
         { isLooping: true, shouldPlay: true, volume: 0 }
       );
 
+      // Check if this request is still current (handles rapid selection)
+      if (requestId !== this.ambientRequestId) {
+        console.log('[Ambient] Stale request, unloading sound');
+        sound.setOnPlaybackStatusUpdate(null);
+        sound.unloadAsync().catch(() => {});
+        return;
+      }
+
       this.ambientSound = sound;
       this.currentAmbientId = assetId;
+
+      // Manual loop fallback: restart when sound finishes (in case isLooping fails for remote audio)
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (!status.isLoaded) {
+          console.log('[Ambient] Status update: not loaded', status);
+          return;
+        }
+        if (status.didJustFinish) {
+          console.log('[Ambient] didJustFinish, attempting restart...');
+          if (this.ambientSound === sound) {
+            sound.setPositionAsync(0)
+              .then(() => sound.playAsync())
+              .then(() => console.log('[Ambient] Restarted successfully'))
+              .catch((err) => console.error('[Ambient] Restart failed:', err));
+          } else {
+            console.log('[Ambient] Sound reference mismatch, skipping restart');
+          }
+        }
+      });
 
       // Fade in like preview
       this.fadeIn(sound, FADE_DURATION);
@@ -91,15 +128,32 @@ class AudioService {
   }
 
   async stopAmbient(): Promise<void> {
+    this.isPreparingNextLoop = false;
+
+    // Stop main ambient sound
     if (this.ambientSound) {
+      const sound = this.ambientSound;
+      this.ambientSound = null;
+      this.currentAmbientId = null;
       try {
-        await this.ambientSound.stopAsync();
-        await this.ambientSound.unloadAsync();
+        sound.setOnPlaybackStatusUpdate(null);
+        await sound.stopAsync();
+        await sound.unloadAsync();
       } catch (error) {
         console.error('Failed to stop ambient sound:', error);
-      } finally {
-        this.ambientSound = null;
-        this.currentAmbientId = null;
+      }
+    }
+
+    // Also stop any pending next loop sound
+    if (this.ambientSoundNext) {
+      const nextSound = this.ambientSoundNext;
+      this.ambientSoundNext = null;
+      try {
+        nextSound.setOnPlaybackStatusUpdate(null);
+        await nextSound.stopAsync();
+        await nextSound.unloadAsync();
+      } catch {
+        // Ignore
       }
     }
   }
@@ -110,6 +164,9 @@ class AudioService {
     const steps = 30;
     const stepTime = durationMs / steps;
     const sound = this.ambientSound;
+
+    // Disable loop callback during fadeout
+    sound.setOnPlaybackStatusUpdate(null);
 
     for (let i = steps; i >= 0; i--) {
       if (!this.ambientSound || this.ambientSound !== sound) break;
@@ -250,6 +307,85 @@ class AudioService {
     const elapsedMs = Date.now() - this.timerStartTime;
     const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
+    // CRITICAL: Monitor ambient sound for looping and recovery
+    // The ambient sound's own callback may not fire in background, but this timer callback does
+    if (this.ambientSound && this.currentAmbientId) {
+      try {
+        const ambientStatus = await this.ambientSound.getStatusAsync();
+        if (ambientStatus.isLoaded) {
+          const position = ambientStatus.positionMillis ?? 0;
+          const duration = ambientStatus.durationMillis ?? 0;
+
+          // Seamless loop: pre-load next track, then overlap-swap
+          // Phase 1: Pre-load next track 3 seconds before end (paused, ready to go)
+          if (duration > 0 && position >= duration - 3000 && !this.ambientSoundNext && !this.isPreparingNextLoop) {
+            this.isPreparingNextLoop = true;
+            const uri = this.getAudioUri(this.currentAmbientId, 'ambient');
+            if (uri) {
+              try {
+                console.log('[Timer] Pre-loading next loop at', position, '/', duration);
+                const { sound: nextSound } = await Audio.Sound.createAsync(
+                  { uri },
+                  { isLooping: false, shouldPlay: false, volume: 1.0 }
+                );
+                this.ambientSoundNext = nextSound;
+                console.log('[Timer] Next loop pre-loaded and ready');
+              } catch (createErr) {
+                console.error('[Timer] Failed to pre-load next loop:', createErr);
+              }
+            }
+            this.isPreparingNextLoop = false;
+          }
+
+          // Phase 2: Start new sound 500ms before end, let them overlap briefly
+          if (duration > 0 && position >= duration - 500 && this.ambientSoundNext) {
+            console.log('[Timer] Starting overlap swap at', position, '/', duration);
+            const oldSound = this.ambientSound;
+            const nextSound = this.ambientSoundNext;
+
+            // Swap references
+            this.ambientSound = nextSound;
+            this.ambientSoundNext = null;
+
+            // Start new sound and WAIT for it to actually begin playing
+            await nextSound.playAsync();
+
+            // Now new sound is playing - instantly mute old sound (no audible overlap)
+            if (oldSound) {
+              oldSound.setOnPlaybackStatusUpdate(null);
+              await oldSound.setVolumeAsync(0);
+              // Clean up in background
+              oldSound.stopAsync().then(() => oldSound.unloadAsync()).catch(() => {});
+            }
+            console.log('[Timer] Swap complete');
+          }
+          // Also restart if stopped unexpectedly
+          else if (!ambientStatus.isPlaying && !this.isPreparingNextLoop) {
+            console.log('[Timer] Ambient stopped, restarting from position', position);
+            await this.ambientSound.setPositionAsync(0);
+            await this.ambientSound.playAsync();
+            console.log('[Timer] Ambient restarted successfully');
+          }
+        }
+      } catch (err: any) {
+        // Native player was destroyed (e.g., screen off killed it)
+        // Need to recreate the sound from scratch
+        if (err?.code === 'E_AUDIO_NOPLAYER') {
+          console.log('[Timer] Native player destroyed, recreating ambient sound...');
+          const assetId = this.currentAmbientId;
+          // Clear old references
+          this.ambientSound = null;
+          this.currentAmbientId = null;
+          this.isPreparingNextLoop = false;
+          // Recreate the sound
+          await this.playAmbient(assetId);
+          console.log('[Timer] Ambient sound recreated successfully');
+        } else {
+          console.error('[Timer] Failed to check/restart ambient:', err);
+        }
+      }
+    }
+
     // Check for intermediate bells
     for (const bellTime of this.scheduledBellTimes) {
       if (elapsedSeconds >= bellTime && !this.playedBellTimes.has(bellTime)) {
@@ -331,12 +467,30 @@ class AudioService {
     }
   }
 
+  // Fade out a sound and unload it (fire and forget for crossfade cleanup)
+  private async fadeOutAndUnload(sound: Audio.Sound, durationMs: number): Promise<void> {
+    const steps = 15;
+    const stepTime = durationMs / steps;
+    try {
+      sound.setOnPlaybackStatusUpdate(null);
+      for (let i = steps; i >= 0; i--) {
+        await sound.setVolumeAsync(i / steps);
+        await new Promise(resolve => setTimeout(resolve, stepTime));
+      }
+      await sound.stopAsync();
+      await sound.unloadAsync();
+    } catch {
+      // Ignore errors during cleanup
+    }
+  }
+
   async stopPreview(): Promise<void> {
     this.currentPreviewId = null;
     if (this.previewSound) {
       const sound = this.previewSound;
       this.previewSound = null;
       try {
+        sound.setOnPlaybackStatusUpdate(null);
         await this.fadeOut(sound);
         await sound.stopAsync();
         await sound.unloadAsync();
@@ -376,14 +530,16 @@ class AudioService {
   }
 
   async previewAmbient(assetId: string, onLoaded?: () => void): Promise<void> {
-    try {
-      // If same asset is playing, stop it (toggle behavior)
-      if (this.currentPreviewId === assetId) {
-        await this.stopPreview();
-        onLoaded?.();
-        return;
-      }
+    // If same asset is playing, stop it (toggle behavior)
+    if (this.currentPreviewId === assetId) {
+      await this.stopPreview();
+      onLoaded?.();
+      return;
+    }
 
+    const requestId = ++this.previewRequestId;
+
+    try {
       await this.stopPreview();
 
       const uri = this.getAudioUri(assetId, 'ambient');
@@ -392,13 +548,42 @@ class AudioService {
         return;
       }
 
+      // Note: isLooping doesn't work reliably for streamed remote audio
       const { sound } = await Audio.Sound.createAsync(
         { uri },
         { shouldPlay: true, isLooping: true, volume: 0 }
       );
 
+      // Check if this request is still current (handles rapid selection)
+      if (requestId !== this.previewRequestId) {
+        console.log('[Preview] Stale request, unloading sound');
+        sound.setOnPlaybackStatusUpdate(null);
+        sound.unloadAsync().catch(() => {});
+        onLoaded?.();
+        return;
+      }
+
       this.previewSound = sound;
       this.currentPreviewId = assetId;
+
+      // Manual loop fallback: restart when sound finishes (in case isLooping fails for remote audio)
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (!status.isLoaded) {
+          console.log('[Preview] Status update: not loaded', status);
+          return;
+        }
+        if (status.didJustFinish) {
+          console.log('[Preview] didJustFinish, attempting restart...');
+          if (this.previewSound === sound) {
+            sound.setPositionAsync(0)
+              .then(() => sound.playAsync())
+              .then(() => console.log('[Preview] Restarted successfully'))
+              .catch((err) => console.error('[Preview] Restart failed:', err));
+          } else {
+            console.log('[Preview] Sound reference mismatch, skipping restart');
+          }
+        }
+      });
 
       // Data is loaded, clear loading state before fadeIn
       onLoaded?.();
@@ -411,6 +596,8 @@ class AudioService {
   }
 
   async previewBell(assetId: string, onLoaded?: () => void): Promise<void> {
+    const requestId = ++this.previewRequestId;
+
     try {
       await this.stopPreview();
 
@@ -424,6 +611,15 @@ class AudioService {
         { uri },
         { shouldPlay: true, volume: 0 }
       );
+
+      // Check if this request is still current (handles rapid selection)
+      if (requestId !== this.previewRequestId) {
+        console.log('[Bell Preview] Stale request, unloading sound');
+        sound.setOnPlaybackStatusUpdate(null);
+        sound.unloadAsync().catch(() => {});
+        onLoaded?.();
+        return;
+      }
 
       this.previewSound = sound;
 

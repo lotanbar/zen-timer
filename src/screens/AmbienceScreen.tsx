@@ -8,6 +8,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { SlotCarousel } from '../components';
 import { usePreferencesStore } from '../store/preferencesStore';
 import { COLORS, FONTS } from '../constants/theme';
@@ -32,12 +33,14 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
     audioService.setAssets(SAMPLE_ASSETS, []);
   }, []);
 
-  // Stop preview when leaving screen (handles swipe-back and header back button)
-  React.useEffect(() => {
-    return () => {
-      audioService.stopPreview();
-    };
-  }, []);
+  // Stop preview when leaving screen (useFocusEffect handles navigation blur)
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => {
+        audioService.stopPreview();
+      };
+    }, [])
+  );
 
   const handleAmbienceSelect = (id: string) => {
     setLocalAmbienceId(id);

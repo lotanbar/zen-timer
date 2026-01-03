@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { SlotCarousel, RepeatingBellOptions } from '../components';
 import { usePreferencesStore } from '../store/preferencesStore';
 import { COLORS, FONTS } from '../constants/theme';
@@ -51,12 +52,14 @@ export function BellScreen({ navigation }: BellScreenProps) {
     loadAssets();
   }, []);
 
-  // Stop preview when leaving screen (handles swipe-back and header back button)
-  useEffect(() => {
-    return () => {
-      audioService.stopPreview();
-    };
-  }, []);
+  // Stop preview when leaving screen (useFocusEffect handles navigation blur)
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        audioService.stopPreview();
+      };
+    }, [])
+  );
 
   const handleBellSelect = (id: string) => {
     setLocalBellId(id);
