@@ -3,64 +3,18 @@ import { Asset } from '../types';
 const CDN_BASE = 'https://zentimer-assets.b-cdn.net/000%20-%20Samples';
 const GITHUB_IMG_BASE = 'https://raw.githubusercontent.com/lotanbar/zen-timer-assets/master/ambient_by_category';
 
-// DEBUG: Test tones for diagnosing loop issues
-// Local bundled version
-export const DEBUG_TEST_ASSET_LOCAL: Asset = {
-  id: 'debug_test_5s',
-  displayName: '🔧 5s LOCAL',
+// DEBUG: Test tone for diagnosing loop issues
+export const DEBUG_TEST_ASSET: Asset = {
+  id: 'debug_stream_120s',
+  displayName: '🔧 120s TEST',
   type: 'ambient',
-  audioUrl: 'BUNDLED_TEST_LOOP', // Special marker handled by audioService
+  audioUrl: `${CDN_BASE}/test_loop_120s.mp3`,
   imageUrl: `${GITHUB_IMG_BASE}/nature/images/wild_wind.jpg`,
   category: 'Debug',
 };
 
-// Streamed versions from CDN
-export const DEBUG_TEST_ASSETS_STREAMED: Asset[] = [
-  {
-    id: 'debug_stream_5s',
-    displayName: '🌐 5s STREAM',
-    type: 'ambient',
-    audioUrl: `${CDN_BASE}/test_loop_5s.mp3`,
-    imageUrl: `${GITHUB_IMG_BASE}/nature/images/wild_wind.jpg`,
-    category: 'Debug',
-  },
-  {
-    id: 'debug_stream_10s',
-    displayName: '🌐 10s STREAM',
-    type: 'ambient',
-    audioUrl: `${CDN_BASE}/test_loop_10s.mp3`,
-    imageUrl: `${GITHUB_IMG_BASE}/nature/images/wild_wind.jpg`,
-    category: 'Debug',
-  },
-  {
-    id: 'debug_stream_15s',
-    displayName: '🌐 15s STREAM',
-    type: 'ambient',
-    audioUrl: `${CDN_BASE}/test_loop_15s.mp3`,
-    imageUrl: `${GITHUB_IMG_BASE}/nature/images/wild_wind.jpg`,
-    category: 'Debug',
-  },
-  {
-    id: 'debug_stream_60s',
-    displayName: '🌐 60s STREAM',
-    type: 'ambient',
-    audioUrl: `${CDN_BASE}/test_loop_60s.mp3`,
-    imageUrl: `${GITHUB_IMG_BASE}/nature/images/wild_wind.jpg`,
-    category: 'Debug',
-  },
-  {
-    id: 'debug_stream_120s',
-    displayName: '🌐 120s STREAM',
-    type: 'ambient',
-    audioUrl: `${CDN_BASE}/test_loop_120s.mp3`,
-    imageUrl: `${GITHUB_IMG_BASE}/nature/images/wild_wind.jpg`,
-    category: 'Debug',
-  },
-];
-
 export const SAMPLE_ASSETS: Asset[] = [
-  DEBUG_TEST_ASSET_LOCAL, // Local bundled test
-  ...DEBUG_TEST_ASSETS_STREAMED, // Streamed tests from CDN
+  DEBUG_TEST_ASSET, // Debug test track (120s)
   {
     id: 'sample_moderate_wind',
     displayName: 'Moderate Wind',
