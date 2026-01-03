@@ -9,9 +9,6 @@ const FADE_STEPS = 20;
 // Path to bundled silent audio for background timer
 const SILENCE_AUDIO = require('../../assets/silence.mp3');
 
-// DEBUG: 5-second test loop for diagnosing looping issues
-const TEST_LOOP_5S = require('../../assets/test_loop_5s.mp3');
-
 type TimerCallback = () => void;
 
 class AudioService {
@@ -68,13 +65,7 @@ class AudioService {
     this.bellAssets = bells;
   }
 
-  private getAudioUri(assetId: string, type: 'ambient' | 'bell'): string | number | null {
-    // Special case: bundled test track
-    if (assetId === 'debug_test_5s') {
-      console.log('[AudioService] 🔧 Using bundled 5-second test track');
-      return TEST_LOOP_5S;
-    }
-
+  private getAudioUri(assetId: string, type: 'ambient' | 'bell'): string | null {
     const assets = type === 'ambient' ? this.ambientAssets : this.bellAssets;
     const asset = assets.find((a) => a.id === assetId);
     if (!asset) return null;
@@ -96,18 +87,17 @@ class AudioService {
     try {
       await this.stopAmbient();
 
-      const source = this.getAudioUri(assetId, 'ambient');
-      if (!source) {
+      const uri = this.getAudioUri(assetId, 'ambient');
+      if (!uri) {
         debugLog.log('Ambient', '❌ No URI found');
         return;
       }
-      const isBundled = typeof source === 'number';
-      debugLog.log('Ambient', `📍 Loading: ${isBundled ? 'BUNDLED' : 'STREAM'}`);
+      debugLog.log('Ambient', `📍 Loading: STREAM`);
 
       // Note: isLooping doesn't work reliably for streamed remote audio,
       // so we manually handle looping via setOnPlaybackStatusUpdate
       const { sound, status } = await Audio.Sound.createAsync(
-        isBundled ? source : { uri: source },
+        { uri },
         { isLooping: true, shouldPlay: true, volume: 0 }
       );
 
@@ -205,6 +195,28 @@ class AudioService {
     }
 
     await this.stopAmbient();
+  }
+
+  async pauseAmbient(): Promise<void> {
+    if (this.ambientSound) {
+      try {
+        await this.ambientSound.pauseAsync();
+        debugLog.log('Ambient', '⏸️ Paused');
+      } catch (error) {
+        debugLog.log('Ambient', `❌ Failed to pause: ${error}`);
+      }
+    }
+  }
+
+  async resumeAmbient(): Promise<void> {
+    if (this.ambientSound) {
+      try {
+        await this.ambientSound.playAsync();
+        debugLog.log('Ambient', '▶️ Resumed');
+      } catch (error) {
+        debugLog.log('Ambient', `❌ Failed to resume: ${error}`);
+      }
+    }
   }
 
   async playBell(assetId: string): Promise<void> {
@@ -479,13 +491,12 @@ class AudioService {
           // Phase 1: Pre-load next track 3 seconds before end (paused, ready to go)
           if (duration > 0 && position >= duration - 3000 && !this.ambientSoundNext && !this.isPreparingNextLoop) {
             this.isPreparingNextLoop = true;
-            const source = this.getAudioUri(this.currentAmbientId, 'ambient');
-            if (source) {
+            const uri = this.getAudioUri(this.currentAmbientId, 'ambient');
+            if (uri) {
               try {
-                const isBundled = typeof source === 'number';
                 debugLog.log('Timer', `🔄 Pre-loading next loop at pos=${Math.round(position/1000)}s / dur=${Math.round(duration/1000)}s`);
                 const { sound: nextSound } = await Audio.Sound.createAsync(
-                  isBundled ? source : { uri: source },
+                  { uri },
                   { isLooping: false, shouldPlay: false, volume: 1.0 }
                 );
                 this.ambientSoundNext = nextSound;
@@ -707,16 +718,15 @@ class AudioService {
     try {
       await this.stopPreview();
 
-      const source = this.getAudioUri(assetId, 'ambient');
-      if (!source) {
+      const uri = this.getAudioUri(assetId, 'ambient');
+      if (!uri) {
         onLoaded?.();
         return;
       }
-      const isBundled = typeof source === 'number';
 
       // Note: isLooping doesn't work reliably for streamed remote audio
       const { sound } = await Audio.Sound.createAsync(
-        isBundled ? source : { uri: source },
+        { uri },
         { shouldPlay: true, isLooping: true, volume: 0 }
       );
 

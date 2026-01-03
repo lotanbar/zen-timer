@@ -41,8 +41,11 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   const { addSession } = useSessionStore();
   const totalSeconds = getTotalSeconds(duration);
   const [remaining, setRemaining] = useState(totalSeconds);
+  const [isPaused, setIsPaused] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(Date.now());
+  const pausedTimeRef = useRef<number>(0); // Accumulated paused time
+  const pauseStartRef = useRef<number | null>(null);
   const isCompletedRef = useRef(false);
   const isMountedRef = useRef(true);
 
@@ -122,7 +125,14 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
     intervalRef.current = setInterval(() => {
       if (!isMountedRef.current || isCompletedRef.current) return;
 
-      const elapsedMs = Date.now() - startTimeRef.current;
+      // Calculate elapsed time excluding paused periods
+      let totalPausedMs = pausedTimeRef.current;
+      if (pauseStartRef.current) {
+        // Currently paused, add ongoing pause duration
+        totalPausedMs += Date.now() - pauseStartRef.current;
+      }
+
+      const elapsedMs = Date.now() - startTimeRef.current - totalPausedMs;
       const elapsedSeconds = Math.floor(elapsedMs / 1000);
       const newRemaining = Math.max(0, totalSeconds - elapsedSeconds);
 
@@ -137,6 +147,23 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       audioService.stopAll();
     };
   }, [ambienceId, totalSeconds, repeatBell, bellId, handleComplete]);
+
+  const handlePauseResume = useCallback(async () => {
+    if (isPaused) {
+      // Resume
+      if (pauseStartRef.current) {
+        pausedTimeRef.current += Date.now() - pauseStartRef.current;
+        pauseStartRef.current = null;
+      }
+      setIsPaused(false);
+      await audioService.resumeAmbient();
+    } else {
+      // Pause
+      pauseStartRef.current = Date.now();
+      setIsPaused(true);
+      await audioService.pauseAmbient();
+    }
+  }, [isPaused]);
 
   const handleStop = useCallback(async () => {
     if (intervalRef.current) {
@@ -167,11 +194,18 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       </View>
       <View style={styles.footer}>
         <TouchableOpacity
-          style={styles.stopButton}
+          style={styles.actionButton}
+          onPress={handlePauseResume}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.actionButtonText}>{isPaused ? 'Resume' : 'Pause'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionButton}
           onPress={handleStop}
           activeOpacity={0.8}
         >
-          <Text style={styles.stopButtonText}>Stop</Text>
+          <Text style={styles.actionButtonText}>Stop</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -196,18 +230,20 @@ const styles = StyleSheet.create({
     letterSpacing: -4,
   },
   footer: {
+    flexDirection: 'row',
     paddingVertical: 24,
     paddingHorizontal: 20,
-    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
   },
-  stopButton: {
+  actionButton: {
     borderWidth: 1,
     borderColor: COLORS.border,
     paddingVertical: 14,
-    paddingHorizontal: 50,
+    paddingHorizontal: 32,
     borderRadius: 8,
   },
-  stopButtonText: {
+  actionButtonText: {
     color: COLORS.text,
     fontSize: FONTS.size.large,
     fontWeight: FONTS.medium,
