@@ -23,8 +23,8 @@ interface SlotCarouselProps {
 }
 
 const SIZES = {
-  normal: { itemSize: 200, itemGap: 32, offsetAdjust: -10 },
-  compact: { itemSize: 140, itemGap: 24, offsetAdjust: 10 },
+  normal: { itemSize: 200, itemGap: 32, offsetAdjust: -16 },
+  compact: { itemSize: 140, itemGap: 48, offsetAdjust: -24 },
 };
 const REPEATS = 100;
 
