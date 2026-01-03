@@ -56,7 +56,7 @@ export function SlotCarousel({ assets, selectedId, onSelect, compact = false, lo
     return result;
   }, [assets]);
 
-  // Exact snap offsets - same positions as scrollToOffset uses
+  // Snap offsets for guaranteed tile centering
   const snapOffsets = useMemo(() => {
     const totalItems = REPEATS * assets.length;
     return Array.from({ length: totalItems }, (_, i) => i * itemTotal);
@@ -153,7 +153,7 @@ export function SlotCarousel({ assets, selectedId, onSelect, compact = false, lo
           horizontal
           showsHorizontalScrollIndicator={false}
           snapToOffsets={snapOffsets}
-          decelerationRate={0.985}
+          decelerationRate={0.992}
           onMomentumScrollEnd={handleMomentumScrollEnd}
           onLayout={handleLayout}
           getItemLayout={getItemLayout}
