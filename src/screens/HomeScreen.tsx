@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Dimensions,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -51,7 +52,6 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     ambienceId,
     bellId,
     repeatBell,
-    resetToDefaults,
   } = usePreferencesStore();
 
   useEffect(() => {
@@ -104,11 +104,6 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     navigation.navigate('Timer');
   };
 
-  const handleReset = () => {
-    resetToDefaults();
-    audioService.stopPreview();
-  };
-
   const totalSeconds = getTotalSeconds(duration);
   const canStart = totalSeconds > 0;
 
@@ -124,6 +119,13 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <View style={styles.header}>
+        <Image
+          source={require('../../assets/icon.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+      </View>
       <View style={styles.buttonsContainer}>
         <StepButton
           ref={durationRef}
@@ -156,14 +158,6 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
         >
           <Text style={[styles.startButtonText, !canStart && styles.startButtonTextDisabled]}>Start</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.resetButton}
-          onPress={handleReset}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.resetIcon}>↺</Text>
-        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -179,6 +173,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  header: {
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 10,
+  },
+  logo: {
+    width: 60,
+    height: 60,
+  },
   buttonsContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -186,13 +189,11 @@ const styles = StyleSheet.create({
     gap: BUTTON_GAP,
   },
   footer: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 16,
     paddingHorizontal: 20,
     paddingBottom: 32,
-    gap: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.border,
   },
@@ -212,18 +213,5 @@ const styles = StyleSheet.create({
   },
   startButtonTextDisabled: {
     color: COLORS.textSecondary,
-  },
-  resetButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  resetIcon: {
-    color: COLORS.textSecondary,
-    fontSize: 22,
   },
 });
