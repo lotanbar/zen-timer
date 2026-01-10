@@ -14,6 +14,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { usePreferencesStore, getTotalSeconds, calculateBellTimes } from '../store/preferencesStore';
 import { useSessionStore } from '../store/sessionStore';
 import { audioService } from '../services/audioService';
+import { isScreenInteractive } from '../services/screenStateService';
 import { COLORS, FONTS } from '../constants/theme';
 import { RootStackParamList } from '../types';
 
@@ -75,20 +76,26 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
     navigation.goBack();
   }, [totalSeconds, ambienceId, bellId, addSession, navigation]);
 
-  // Handle app state changes - auto-pause when backgrounded, update display when foregrounded
+  // Handle app state changes:
+  // - When going to background: pause ONLY if screen is still on (user switched apps)
+  // - When screen is turned off: keep playing (meditation continues)
+  // - When returning to foreground: update display, check completion
   useEffect(() => {
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+    const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (isCompletedRef.current) return;
 
       if (nextAppState === 'background' || nextAppState === 'inactive') {
-        // Auto-pause when app goes to background
-        if (!isPaused) {
+        // Check if screen is still on (user switched apps) vs screen turned off
+        const screenOn = await isScreenInteractive();
+        if (screenOn && !isPaused) {
+          // User switched to another app with screen on - pause the meditation
           pauseStartRef.current = Date.now();
           setIsPaused(true);
           audioService.pauseAmbient();
         }
+        // If screen is off, keep playing - the background timer handles everything
       } else if (nextAppState === 'active') {
-        // Recalculate remaining time for display
+        // Recalculate remaining time for display (accounting for any pauses)
         let totalPausedMs = pausedTimeRef.current;
         if (pauseStartRef.current) {
           totalPausedMs += Date.now() - pauseStartRef.current;
@@ -117,7 +124,7 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
 
       if (!isMountedRef.current) return;
 
-      // Start ambient if selected
+      // Start ambient if selected (should be pre-cached)
       if (ambienceId) {
         await audioService.playAmbient(ambienceId);
       }

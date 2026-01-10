@@ -35,7 +35,7 @@ function formatDuration(hours: number, minutes: number, seconds: number): string
 }
 
 function getRandomInterval() {
-  return 3000 + Math.random() * 3000; // 3-6 seconds
+  return 3000 + Math.random() * 7000; // 3-10 seconds
 }
 
 export function HomeScreen({ navigation }: HomeScreenProps) {
@@ -69,42 +69,58 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     loadAssets();
   }, []);
 
-  // Two independent pulse timers so multiple buttons can light up at once
+  // Three independent pulse timers so multiple buttons can light up at once
   useEffect(() => {
     let timeoutId1: NodeJS.Timeout;
     let timeoutId2: NodeJS.Timeout;
-    let lastIndex1 = -1;
-    let lastIndex2 = -1;
+    let timeoutId3: NodeJS.Timeout;
+    const lastPulseTime = [0, 0, 0]; // Track last pulse time for each button
+    const COOLDOWN = 2000; // 2 second cooldown per button
 
-    const getAvailableIndex = (excludeIndex: number): number => {
-      const available = [0, 1, 2].filter(i => i !== excludeIndex);
+    const getAvailableIndex = (): number | null => {
+      const now = Date.now();
+      const available = [0, 1, 2].filter(i => now - lastPulseTime[i] >= COOLDOWN);
+      if (available.length === 0) return null;
       return available[Math.floor(Math.random() * available.length)];
+    };
+
+    const pulseButton = () => {
+      const index = getAvailableIndex();
+      if (index !== null) {
+        lastPulseTime[index] = Date.now();
+        buttonRefs[index].current?.pulse();
+      }
     };
 
     const scheduleNextPulse1 = () => {
       timeoutId1 = setTimeout(() => {
-        const index = getAvailableIndex(lastIndex2);
-        lastIndex1 = index;
-        buttonRefs[index].current?.pulse();
+        pulseButton();
         scheduleNextPulse1();
       }, getRandomInterval());
     };
 
     const scheduleNextPulse2 = () => {
       timeoutId2 = setTimeout(() => {
-        const index = getAvailableIndex(lastIndex1);
-        lastIndex2 = index;
-        buttonRefs[index].current?.pulse();
+        pulseButton();
         scheduleNextPulse2();
+      }, getRandomInterval());
+    };
+
+    const scheduleNextPulse3 = () => {
+      timeoutId3 = setTimeout(() => {
+        pulseButton();
+        scheduleNextPulse3();
       }, getRandomInterval());
     };
 
     scheduleNextPulse1();
     scheduleNextPulse2();
+    scheduleNextPulse3();
 
     return () => {
       clearTimeout(timeoutId1);
       clearTimeout(timeoutId2);
+      clearTimeout(timeoutId3);
     };
   }, []);
 

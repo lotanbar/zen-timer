@@ -50,9 +50,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: COLORS.border,
     borderRadius: 8,
-    marginHorizontal: 4,
-    marginBottom: 4,
     paddingHorizontal: 12,
+    height: 40,
   },
   input: {
     flex: 1,
