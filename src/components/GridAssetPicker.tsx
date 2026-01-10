@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { Asset } from '../types';
 import { COLORS, FONTS } from '../constants/theme';
@@ -18,6 +19,7 @@ interface GridAssetPickerProps {
   showNoOption?: boolean;
   noOptionLabel?: string;
   pinnedIds?: string[];
+  loadingId?: string | null;
 }
 
 const { width } = Dimensions.get('window');
@@ -33,6 +35,7 @@ export function GridAssetPicker({
   showNoOption = false,
   noOptionLabel = 'None',
   pinnedIds = [],
+  loadingId,
 }: GridAssetPickerProps) {
   const data: (Asset | null)[] = showNoOption ? [null, ...assets] : assets;
 
@@ -41,6 +44,7 @@ export function GridAssetPicker({
     const isNoOption = item === null;
     const isPinned = item ? pinnedIds.includes(item.id) : false;
     const hasDiscrepancy = item?.hasDiscrepancy ?? false;
+    const isLoading = item ? item.id === loadingId : false;
 
     return (
       <TouchableOpacity
@@ -67,6 +71,14 @@ export function GridAssetPicker({
           ) : (
             <>
               <CachedImage asset={item!} />
+              {isLoading && (
+                <>
+                  <View style={styles.loadingOverlay} />
+                  <View style={styles.loadingIndicator}>
+                    <ActivityIndicator size="small" color={COLORS.text} />
+                  </View>
+                </>
+              )}
               {hasDiscrepancy && (
                 <>
                   <View style={styles.discrepancyOverlay} />
@@ -75,7 +87,7 @@ export function GridAssetPicker({
                   </View>
                 </>
               )}
-              {isPinned && !hasDiscrepancy && (
+              {isPinned && !hasDiscrepancy && !isLoading && (
                 <View style={styles.pinnedIndicator}>
                   <Text style={styles.pinnedStar}>★</Text>
                 </View>
@@ -169,7 +181,8 @@ const styles = StyleSheet.create({
   },
   pinnedStar: {
     color: '#FFD700',
-    fontSize: 13,
+    fontSize: 12,
+    marginTop: -1,
   },
   discrepancyImageContainer: {
     borderColor: '#FF4444',
@@ -191,5 +204,18 @@ const styles = StyleSheet.create({
     color: '#FF4444',
     fontSize: 32,
     fontWeight: '700',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  loadingIndicator: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

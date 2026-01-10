@@ -42,4 +42,23 @@ yarn-error.*
 
 # generated native folders
 /ios
-/android
+/android/*
+!/android/app
+/android/app/*
+!/android/app/src
+/android/app/src/*
+!/android/app/src/main
+/android/app/src/main/*
+!/android/app/src/main/java
+/android/app/src/main/java/*
+!/android/app/src/main/java/com
+/android/app/src/main/java/com/*
+!/android/app/src/main/java/com/allhailalona
+/android/app/src/main/java/com/allhailalona/*
+!/android/app/src/main/java/com/allhailalona/ZenTimer
+/android/app/src/main/java/com/allhailalona/ZenTimer/*
+!/android/app/src/main/java/com/allhailalona/ZenTimer/CrossfadePlayerModule.kt
+!/android/app/src/main/java/com/allhailalona/ZenTimer/CrossfadePlayerPackage.kt
+!/android/app/src/main/java/com/allhailalona/ZenTimer/ScreenStateModule.kt
+!/android/app/src/main/java/com/allhailalona/ZenTimer/ScreenStatePackage.kt
+!/android/app/src/main/java/com/allhailalona/ZenTimer/MainApplication.kt

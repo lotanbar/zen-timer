@@ -1,45 +1,157 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
+  ScrollView,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import { SlotCarousel } from '../components';
+import Svg, { Path } from 'react-native-svg';
+import { GridAssetPicker, SearchBar } from '../components';
 import { usePreferencesStore } from '../store/preferencesStore';
 import { COLORS, FONTS } from '../constants/theme';
 import { audioService } from '../services/audioService';
-import { SAMPLE_ASSETS } from '../constants/sampleAssets';
-import { RootStackParamList } from '../types';
+import { RootStackParamList, Asset } from '../types';
+import * as sampleGenerator from '../services/sampleGeneratorService';
 
 type AmbienceScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Ambience'>;
 };
 
+function ShuffleIcon({ size = 20, color = COLORS.text }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+function RefreshIcon({ size = 20, color = COLORS.text }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
   const { ambienceId: storeAmbienceId, setAmbience } = usePreferencesStore();
+  const scrollViewRef = useRef<ScrollView>(null);
 
-  // Find matching sample or default to first
-  const initialId = SAMPLE_ASSETS.find(s => s.id === storeAmbienceId)?.id || SAMPLE_ASSETS[0].id;
-  const [localAmbienceId, setLocalAmbienceId] = useState<string>(initialId);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [localAmbienceId, setLocalAmbienceId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showRefreshDialog, setShowRefreshDialog] = useState(false);
+  const [countdown, setCountdown] = useState(10);
+  const [starredIds, setStarredIds] = useState<string[]>([]);
 
-  // Register sample assets with audio service
-  React.useEffect(() => {
-    audioService.setAssets(SAMPLE_ASSETS, []);
-  }, []);
+  // Load saved samples and starred IDs on mount
+  useEffect(() => {
+    const loadData = async () => {
+      const [samples, starred] = await Promise.all([
+        sampleGenerator.getOrCreateSamples(),
+        sampleGenerator.loadStarredIds(),
+      ]);
+      setAssets(samples);
+      setStarredIds(starred);
+      audioService.setAssets(samples, []);
+      // Set initial selection
+      const matchingId = samples.find(s => s.id === storeAmbienceId)?.id || samples[0]?.id;
+      setLocalAmbienceId(matchingId);
+    };
+    loadData();
+  }, [storeAmbienceId]);
 
-  // Stop preview when leaving screen (useFocusEffect handles navigation blur)
+  // Stop preview when leaving screen
   useFocusEffect(
-    React.useCallback(() => {
+    useCallback(() => {
       return () => {
         audioService.stopPreview();
       };
     }, [])
   );
+
+  // Filter assets by search query, with starred items first
+  const filteredAssets = assets
+    .filter(asset => asset.displayName.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      const aStarred = starredIds.includes(a.id);
+      const bStarred = starredIds.includes(b.id);
+      if (aStarred && !bStarred) return -1;
+      if (!aStarred && bStarred) return 1;
+      return 0;
+    });
+
+  // Countdown timer for refresh dialog
+  useEffect(() => {
+    if (!showRefreshDialog) {
+      setCountdown(10);
+      return;
+    }
+
+    if (countdown <= 0) return;
+
+    const timer = setTimeout(() => {
+      setCountdown(c => c - 1);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [showRefreshDialog, countdown]);
+
+  const handleRefreshPress = () => {
+    setShowRefreshDialog(true);
+  };
+
+  const handleRefreshCancel = () => {
+    setShowRefreshDialog(false);
+  };
+
+  const handleRefreshConfirm = async () => {
+    if (countdown > 0) return;
+
+    setShowRefreshDialog(false);
+    setIsRefreshing(true);
+    await audioService.stopPreview();
+    const newSamples = await sampleGenerator.generateAndSaveWithStarred(assets, starredIds);
+    setAssets(newSamples);
+    audioService.setAssets(newSamples, []);
+    // Select first non-starred item or first item
+    const firstUnstarred = newSamples.find(s => !starredIds.includes(s.id));
+    setLocalAmbienceId(firstUnstarred?.id || newSamples[0]?.id);
+    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    setIsRefreshing(false);
+  };
+
+  const handleLongPress = async (id: string) => {
+    let newStarredIds: string[];
+    if (starredIds.includes(id)) {
+      // Unstar
+      newStarredIds = starredIds.filter(sid => sid !== id);
+    } else {
+      // Star
+      newStarredIds = [...starredIds, id];
+    }
+    setStarredIds(newStarredIds);
+    await sampleGenerator.saveStarredIds(newStarredIds);
+  };
 
   const handleAmbienceSelect = (id: string) => {
     setLocalAmbienceId(id);
@@ -50,9 +162,17 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
       return;
     }
 
-    // Play new item with loading indicator (clears when data loads, not when fadeIn ends)
+    // Play new item with loading indicator
     setLoadingId(id);
     audioService.previewAmbient(id, () => setLoadingId(null));
+  };
+
+  const handleShuffle = () => {
+    if (filteredAssets.length === 0) return;
+    const randomIndex = Math.floor(Math.random() * filteredAssets.length);
+    const randomAsset = filteredAssets[randomIndex];
+    handleAmbienceSelect(randomAsset.id);
+    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
   };
 
   const handleSelect = async () => {
@@ -66,21 +186,99 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
       <View style={styles.content}>
         <Text style={styles.title}>Ambience</Text>
 
-        <View style={styles.carouselContainer}>
-          <SlotCarousel
-            assets={SAMPLE_ASSETS}
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <GridAssetPicker
+            assets={filteredAssets}
             selectedId={localAmbienceId}
-            onSelect={handleAmbienceSelect}
+            onSelect={(id) => id && handleAmbienceSelect(id)}
+            onLongPress={handleLongPress}
+            pinnedIds={starredIds}
             loadingId={loadingId}
           />
-        </View>
+        </ScrollView>
       </View>
 
-      <View style={styles.footer}>
+      <View style={styles.bottomSection}>
+        <Text style={styles.instructionText}>
+          Long press a tile to star it, long press again to undo
+        </Text>
+        <View style={styles.searchRow}>
+          <View style={styles.searchBarContainer}>
+            <SearchBar
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search sounds..."
+            />
+          </View>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={handleShuffle}
+            activeOpacity={0.7}
+          >
+            <ShuffleIcon size={20} color={COLORS.text} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconButton, isRefreshing && styles.iconButtonDisabled]}
+            onPress={handleRefreshPress}
+            activeOpacity={0.7}
+            disabled={isRefreshing}
+          >
+            <RefreshIcon size={20} color={isRefreshing ? COLORS.border : COLORS.text} />
+          </TouchableOpacity>
+        </View>
+
         <TouchableOpacity style={styles.selectButton} onPress={handleSelect} activeOpacity={0.7}>
           <Text style={styles.selectButtonText}>Select</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={showRefreshDialog}
+        transparent
+        animationType="fade"
+        onRequestClose={handleRefreshCancel}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Reshuffle audio tracks?</Text>
+            <Text style={styles.modalText}>
+              Star tracks you want to keep - they won't be replaced. This action is irreversible, you might NOT find unstarred tracks ever again.
+            </Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={handleRefreshCancel}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalConfirmButton,
+                  countdown > 0 && styles.modalConfirmButtonDisabled,
+                ]}
+                onPress={handleRefreshConfirm}
+                activeOpacity={countdown > 0 ? 1 : 0.7}
+                disabled={countdown > 0}
+              >
+                <Text
+                  style={[
+                    styles.modalConfirmText,
+                    countdown > 0 && styles.modalConfirmTextDisabled,
+                  ]}
+                >
+                  {countdown > 0 ? `Confirm (${countdown})` : 'Confirm'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -100,19 +298,46 @@ const styles = StyleSheet.create({
     fontWeight: FONTS.semibold,
     textAlign: 'center',
     marginTop: 20,
-    marginBottom: 20,
+    marginBottom: 16,
   },
-  carouselContainer: {
+  instructionText: {
+    color: COLORS.textSecondary || '#888',
+    fontSize: FONTS.size.small,
+    textAlign: 'center',
+  },
+  scrollView: {
     flex: 1,
-    justifyContent: 'center',
   },
-  footer: {
+  scrollContent: {
+    paddingBottom: 20,
+  },
+  bottomSection: {
     alignItems: 'center',
-    justifyContent: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.border,
+    gap: 12,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    gap: 8,
+  },
+  searchBarContainer: {
+    flex: 1,
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: COLORS.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  iconButtonDisabled: {
+    opacity: 0.5,
   },
   selectButton: {
     paddingVertical: 14,
@@ -125,5 +350,67 @@ const styles = StyleSheet.create({
     color: COLORS.background,
     fontSize: FONTS.size.medium,
     fontWeight: FONTS.semibold,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: COLORS.surface || '#1a1a1a',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+  },
+  modalTitle: {
+    color: COLORS.text,
+    fontSize: FONTS.size.large,
+    fontWeight: FONTS.semibold,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  modalText: {
+    color: COLORS.textSecondary || '#888',
+    fontSize: FONTS.size.medium,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalCancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 8,
+    backgroundColor: COLORS.border,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    color: COLORS.text,
+    fontSize: FONTS.size.medium,
+    fontWeight: FONTS.medium,
+  },
+  modalConfirmButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 8,
+    backgroundColor: COLORS.text,
+    alignItems: 'center',
+  },
+  modalConfirmButtonDisabled: {
+    backgroundColor: COLORS.border,
+  },
+  modalConfirmText: {
+    color: COLORS.background,
+    fontSize: FONTS.size.medium,
+    fontWeight: FONTS.semibold,
+  },
+  modalConfirmTextDisabled: {
+    color: '#666',
   },
 });
