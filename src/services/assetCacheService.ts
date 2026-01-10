@@ -167,9 +167,22 @@ class AssetCacheService {
     return cached ?? asset.imageUrl;
   }
 
-  getAudioUri(asset: Asset): string {
+  getAudioUri(asset: Asset): string | null {
+    // Handle bundled assets (audioUrl starts with "BUNDLED:")
+    if (asset.audioUrl.startsWith('BUNDLED:')) {
+      return null; // Signal to use require() in audioService
+    }
     const cached = this.audioCache.get(asset.id);
     return cached ?? asset.audioUrl;
+  }
+
+  isBundledAudio(asset: Asset): boolean {
+    return asset.audioUrl.startsWith('BUNDLED:');
+  }
+
+  getBundledAudioKey(asset: Asset): string | null {
+    if (!asset.audioUrl.startsWith('BUNDLED:')) return null;
+    return asset.audioUrl.replace('BUNDLED:', '');
   }
 
   async cacheAllImages(
