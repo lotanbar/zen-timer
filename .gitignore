@@ -62,3 +62,8 @@ yarn-error.*
 !/android/app/src/main/java/com/allhailalona/ZenTimer/ScreenStateModule.kt
 !/android/app/src/main/java/com/allhailalona/ZenTimer/ScreenStatePackage.kt
 !/android/app/src/main/java/com/allhailalona/ZenTimer/MainApplication.kt
+
+# Bell assets (now on bunny.net CDN)
+bells_audio/
+bells_images/
+ZenTimer.apk
