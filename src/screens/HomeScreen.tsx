@@ -17,7 +17,12 @@ import { COLORS, FONTS } from '../constants/theme';
 import { audioService } from '../services/audioService';
 import { getBellAssets } from '../services/assetDiscoveryService';
 import { SAMPLE_ASSETS } from '../constants/sampleAssets';
+import { DEV_SAMPLE_ASSETS, DEV_SAMPLE_IDS } from '../constants/devAssets';
 import { RootStackParamList, Asset } from '../types';
+
+function pickRandom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
@@ -60,6 +65,8 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     ambienceId,
     bellId,
     repeatBell,
+    setAmbience,
+    setBell,
   } = usePreferencesStore();
 
   useEffect(() => {
@@ -68,6 +75,21 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
         const bells = await getBellAssets();
         setBellAssets(bells);
         audioService.setAssets(SAMPLE_ASSETS, bells);
+
+        // Set default ambience if none selected, or if dev sample selected but dev mode off
+        const isDevSample = ambienceId && DEV_SAMPLE_IDS.includes(ambienceId);
+        const ambienceExists = ambienceId && SAMPLE_ASSETS.some(a => a.id === ambienceId);
+        if (!ambienceId || (isDevSample && !isDevMode) || (!ambienceExists && !isDevSample)) {
+          const randomAmbience = pickRandom(SAMPLE_ASSETS);
+          setAmbience(randomAmbience.id);
+        }
+
+        // Set default bell if selected bell doesn't exist
+        const bellExists = bells.some(b => b.id === bellId);
+        if (!bellExists && bells.length > 0) {
+          const randomBell = pickRandom(bells);
+          setBell(randomBell.id);
+        }
       } catch (error) {
         console.error('Failed to load assets:', error);
       } finally {
@@ -75,7 +97,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
       }
     }
     loadAssets();
-  }, []);
+  }, [isDevMode]);
 
   // Three independent pulse timers so multiple buttons can light up at once
   useEffect(() => {
@@ -173,7 +195,9 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     }, 2000);
   };
 
-  const selectedAmbience = SAMPLE_ASSETS.find(a => a.id === ambienceId);
+  // Include dev samples in lookup when dev mode is on
+  const allAmbienceAssets = isDevMode ? [...DEV_SAMPLE_ASSETS, ...SAMPLE_ASSETS] : SAMPLE_ASSETS;
+  const selectedAmbience = allAmbienceAssets.find(a => a.id === ambienceId);
   const selectedBell = bellAssets.find(b => b.id === bellId);
 
   const durationValue = formatDuration(duration.hours, duration.minutes, duration.seconds);
