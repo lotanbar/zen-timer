@@ -13,10 +13,12 @@ import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Path } from 'react-native-svg';
 import { GridAssetPicker, SearchBar } from '../components';
 import { usePreferencesStore } from '../store/preferencesStore';
+import { useDevModeStore } from '../store/devModeStore';
 import { COLORS, FONTS } from '../constants/theme';
 import { audioService } from '../services/audioService';
 import { RootStackParamList, Asset } from '../types';
 import * as sampleGenerator from '../services/sampleGeneratorService';
+import { DEV_SAMPLE_ASSETS, DEV_SAMPLE_IDS } from '../constants/devAssets';
 
 type AmbienceScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Ambience'>;
@@ -52,6 +54,7 @@ function RefreshIcon({ size = 20, color = COLORS.text }: { size?: number; color?
 
 export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
   const { ambienceId: storeAmbienceId, setAmbience } = usePreferencesStore();
+  const { isDevMode } = useDevModeStore();
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -63,22 +66,31 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
   const [countdown, setCountdown] = useState(10);
   const [starredIds, setStarredIds] = useState<string[]>([]);
 
-  // Load saved samples and starred IDs on mount
+  // Load saved samples and starred IDs on mount or when dev mode changes
   useEffect(() => {
     const loadData = async () => {
       const [samples, starred] = await Promise.all([
         sampleGenerator.getOrCreateSamples(),
         sampleGenerator.loadStarredIds(),
       ]);
-      setAssets(samples);
+      // Include dev samples if dev mode is enabled
+      const allAssets = isDevMode ? [...DEV_SAMPLE_ASSETS, ...samples] : samples;
+      setAssets(allAssets);
       setStarredIds(starred);
-      audioService.setAssets(samples, []);
+      audioService.setAssets(allAssets, []);
       // Set initial selection
-      const matchingId = samples.find(s => s.id === storeAmbienceId)?.id || samples[0]?.id;
+      const matchingId = allAssets.find(s => s.id === storeAmbienceId)?.id || allAssets[0]?.id;
       setLocalAmbienceId(matchingId);
     };
     loadData();
-  }, [storeAmbienceId]);
+  }, [storeAmbienceId, isDevMode]);
+
+  // Reset selection if dev mode is disabled and a dev sample was selected
+  useEffect(() => {
+    if (!isDevMode && storeAmbienceId && DEV_SAMPLE_IDS.includes(storeAmbienceId)) {
+      setAmbience(null);
+    }
+  }, [isDevMode, storeAmbienceId, setAmbience]);
 
   // Stop preview when leaving screen
   useFocusEffect(
@@ -89,10 +101,16 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
     }, [])
   );
 
-  // Filter assets by search query, with starred items first
+  // Filter assets by search query, with dev samples first, then starred
   const filteredAssets = assets
     .filter(asset => asset.displayName.toLowerCase().includes(searchQuery.toLowerCase()))
     .sort((a, b) => {
+      // Dev samples always first
+      const aDev = DEV_SAMPLE_IDS.includes(a.id);
+      const bDev = DEV_SAMPLE_IDS.includes(b.id);
+      if (aDev && !bDev) return -1;
+      if (!aDev && bDev) return 1;
+      // Then starred items
       const aStarred = starredIds.includes(a.id);
       const bStarred = starredIds.includes(b.id);
       if (aStarred && !bStarred) return -1;

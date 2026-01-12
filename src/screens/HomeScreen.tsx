@@ -10,8 +10,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { StepButton, StepButtonRef } from '../components';
+import { StepButton, StepButtonRef, Toast } from '../components';
 import { usePreferencesStore, getTotalSeconds } from '../store/preferencesStore';
+import { useDevModeStore } from '../store/devModeStore';
 import { COLORS, FONTS } from '../constants/theme';
 import { audioService } from '../services/audioService';
 import { getBellAssets } from '../services/assetDiscoveryService';
@@ -46,6 +47,13 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   const ambienceRef = useRef<StepButtonRef>(null);
   const bellRef = useRef<StepButtonRef>(null);
   const buttonRefs = [durationRef, ambienceRef, bellRef];
+
+  // Dev mode tap detection
+  const { isDevMode, toggleDevMode } = useDevModeStore();
+  const [tapCount, setTapCount] = useState(0);
+  const [toastMessage, setToastMessage] = useState('');
+  const [showToast, setShowToast] = useState(false);
+  const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const {
     duration,
@@ -124,6 +132,47 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     };
   }, []);
 
+  // Cleanup tap timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (tapTimeoutRef.current) {
+        clearTimeout(tapTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleLogoPress = () => {
+    if (tapTimeoutRef.current) {
+      clearTimeout(tapTimeoutRef.current);
+    }
+
+    const newCount = tapCount + 1;
+    setTapCount(newCount);
+
+    // Show countdown toasts from tap 4 onwards
+    if (newCount >= 4 && newCount < 7) {
+      const remaining = 7 - newCount;
+      setToastMessage(
+        `You're ${remaining} tap${remaining > 1 ? 's' : ''} from ${isDevMode ? 'leaving' : 'becoming'} a dev...`
+      );
+      setShowToast(true);
+    }
+
+    // Toggle dev mode on 7th tap
+    if (newCount >= 7) {
+      toggleDevMode();
+      setToastMessage(isDevMode ? 'Dev mode disabled' : 'Dev mode enabled!');
+      setShowToast(true);
+      setTapCount(0);
+      return;
+    }
+
+    // Reset tap count after 2 seconds of no taps
+    tapTimeoutRef.current = setTimeout(() => {
+      setTapCount(0);
+    }, 2000);
+  };
+
   const selectedAmbience = SAMPLE_ASSETS.find(a => a.id === ambienceId);
   const selectedBell = bellAssets.find(b => b.id === bellId);
 
@@ -158,11 +207,13 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Image
-          source={require('../../assets/icon.png')}
-          style={styles.logo}
-          resizeMode="contain"
-        />
+        <TouchableOpacity onPress={handleLogoPress} activeOpacity={0.8}>
+          <Image
+            source={require('../../assets/icon.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
       </View>
       <View style={styles.buttonsContainer}>
         <StepButton
@@ -197,6 +248,12 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
           <Text style={[styles.startButtonText, !canStart && styles.startButtonTextDisabled]}>Start</Text>
         </TouchableOpacity>
       </View>
+
+      <Toast
+        message={toastMessage}
+        visible={showToast}
+        onHide={() => setShowToast(false)}
+      />
     </SafeAreaView>
   );
 }

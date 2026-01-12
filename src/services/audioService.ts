@@ -76,7 +76,10 @@ class AudioService {
   }
 
   // Bundled audio assets map (for assets that ship with the app)
-  private bundledAudio: { [key: string]: number } = {};
+  private bundledAudio: { [key: string]: number } = {
+    dev_wind: require('../../assets/dev/dev_wind.mp3'),
+    dev_frogs: require('../../assets/dev/dev_frogs.mp3'),
+  };
 
   // Cache for extracted bundled asset URIs
   private bundledAssetUris: Map<string, string> = new Map();
