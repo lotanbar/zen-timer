@@ -8,9 +8,9 @@ const FADE_DURATION = 400;
 const FADE_STEPS = 20;
 
 // Loop transition settings
-const LOOP_FADE_OUT_DURATION = 10000;  // 10 seconds fade out
-const LOOP_SILENCE_DURATION = 3000;    // 3 seconds silence
-const LOOP_FADE_IN_DURATION = 10000;   // 10 seconds fade in
+const LOOP_FADE_OUT_DURATION = 5000;   // 5 seconds fade out
+const LOOP_SILENCE_DURATION = 0;       // No silence between loops
+const LOOP_FADE_IN_DURATION = 5000;    // 5 seconds fade in
 
 // Path to bundled silent audio for background timer
 const SILENCE_AUDIO = require('../../assets/silence.mp3');
@@ -25,6 +25,7 @@ class AudioService {
   private loopTimeoutId: NodeJS.Timeout | null = null;
   private isLooping: boolean = false;
   private isAmbientPaused: boolean = false;
+  private isTransitioning: boolean = false; // Prevents backup monitor interference during loop transitions
 
   private bellSounds: Set<Audio.Sound> = new Set();
   private previewSound: Audio.Sound | null = null;
@@ -126,7 +127,7 @@ class AudioService {
 
       const { sound, status } = await Audio.Sound.createAsync(
         source,
-        { isLooping: false, shouldPlay: true, volume: 0 }
+        { isLooping: true, shouldPlay: true, volume: 0 }
       );
 
       // Check if this request is still current (handles rapid selection)
@@ -160,8 +161,8 @@ class AudioService {
 
     if (!this.ambientSound || !this.isLooping || this.ambientDurationMs <= 0) return;
 
-    // Schedule fade-out to start 10 seconds before track ends
-    const fadeOutStartTime = Math.max(0, this.ambientDurationMs - LOOP_FADE_OUT_DURATION);
+    // Schedule fade-out to complete 500ms BEFORE track ends (buffer for timing)
+    const fadeOutStartTime = Math.max(0, this.ambientDurationMs - LOOP_FADE_OUT_DURATION - 500);
 
     debugLog.log('Ambient', `⏰ Scheduling loop transition in ${Math.round(fadeOutStartTime / 1000)}s`);
 
@@ -173,13 +174,17 @@ class AudioService {
   private async performLoopTransition(): Promise<void> {
     if (!this.ambientSound || !this.isLooping || this.isAmbientPaused) return;
 
+    this.isTransitioning = true;
     debugLog.log('Ambient', `🔄 Starting loop transition: fade out`);
 
     try {
       // 1. Fade out over 10 seconds
       await this.fadeOutGradual(this.ambientSound, LOOP_FADE_OUT_DURATION);
 
-      if (!this.isLooping || this.isAmbientPaused) return;
+      if (!this.isLooping || this.isAmbientPaused) {
+        this.isTransitioning = false;
+        return;
+      }
 
       // 2. Pause during silence
       await this.ambientSound.pauseAsync();
@@ -188,7 +193,10 @@ class AudioService {
       // 3. Wait for silence period
       await new Promise(resolve => setTimeout(resolve, LOOP_SILENCE_DURATION));
 
-      if (!this.isLooping || this.isAmbientPaused) return;
+      if (!this.isLooping || this.isAmbientPaused) {
+        this.isTransitioning = false;
+        return;
+      }
 
       // 4. Seek to beginning and start playing
       await this.ambientSound.setPositionAsync(0);
@@ -198,12 +206,15 @@ class AudioService {
       debugLog.log('Ambient', `🔊 Fade in`);
       await this.fadeInGradual(this.ambientSound, LOOP_FADE_IN_DURATION);
 
+      this.isTransitioning = false;
+
       if (!this.isLooping) return;
 
       // 6. Schedule next loop
       debugLog.log('Ambient', `✅ Loop complete, scheduling next`);
       this.scheduleLoopTransition();
     } catch (error) {
+      this.isTransitioning = false;
       debugLog.log('Ambient', `❌ Loop transition error: ${error}`);
       // Try to recover by restarting
       if (this.isLooping && this.currentAmbientId) {
@@ -218,15 +229,26 @@ class AudioService {
     const steps = 30;
     const stepTime = durationMs / steps;
 
+    debugLog.log('Ambient', `📉 Fade out starting: ${steps} steps, ${stepTime}ms each`);
+
     for (let i = steps; i >= 0; i--) {
-      if (!this.isLooping) break;
+      if (!this.isLooping) {
+        debugLog.log('Ambient', `📉 Fade out aborted at step ${i} (isLooping=false)`);
+        break;
+      }
       try {
-        await sound.setVolumeAsync(i / steps);
+        const volume = i / steps;
+        await sound.setVolumeAsync(volume);
+        if (i % 10 === 0) {
+          debugLog.log('Ambient', `📉 Volume: ${volume.toFixed(2)}`);
+        }
         await new Promise(resolve => setTimeout(resolve, stepTime));
-      } catch {
+      } catch (err) {
+        debugLog.log('Ambient', `📉 Fade out error at step ${i}: ${err}`);
         break;
       }
     }
+    debugLog.log('Ambient', `📉 Fade out complete`);
   }
 
   private async fadeInGradual(sound: Audio.Sound, durationMs: number): Promise<void> {
@@ -254,6 +276,7 @@ class AudioService {
   async stopAmbient(): Promise<void> {
     this.isLooping = false;
     this.isAmbientPaused = false;
+    this.isTransitioning = false;
     this.currentAmbientId = null;
     this.ambientDurationMs = 0;
     this.clearLoopTimeout();
@@ -496,8 +519,8 @@ class AudioService {
         await this.checkAndRestartAmbient('Backup');
       }
 
-      // Periodic ambient check
-      if (this.ambientSound && this.currentAmbientId && !this.isAmbientPaused) {
+      // Periodic ambient check - skip if transitioning
+      if (this.ambientSound && this.currentAmbientId && !this.isAmbientPaused && !this.isTransitioning) {
         try {
           const ambientStatus = await this.ambientSound.getStatusAsync();
           if (ambientStatus.isLoaded && !(ambientStatus as any).isPlaying && this.isLooping) {
@@ -521,7 +544,7 @@ class AudioService {
 
   // Shared method to check and restart ambient sound
   private async checkAndRestartAmbient(source: string): Promise<void> {
-    if (!this.ambientSound || !this.currentAmbientId || this.isAmbientPaused) return;
+    if (!this.ambientSound || !this.currentAmbientId || this.isAmbientPaused || this.isTransitioning) return;
 
     try {
       const status = await this.ambientSound.getStatusAsync();

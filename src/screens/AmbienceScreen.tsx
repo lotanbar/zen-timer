@@ -159,6 +159,9 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
   };
 
   const handleLongPress = async (id: string) => {
+    // Don't allow starring dev samples
+    if (DEV_SAMPLE_IDS.includes(id)) return;
+
     let newStarredIds: string[];
     if (starredIds.includes(id)) {
       // Unstar

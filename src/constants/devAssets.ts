@@ -22,20 +22,20 @@ export const DEV_SAMPLE_ASSETS: Asset[] = [
     imageUrl: `${DEV_IMAGES_BASE}/dev_local_frogs.png`,
     category: 'Dev Samples',
   },
-  // CDN tracks (full length, from existing library)
+  // CDN tracks (same 15s clips as local, but streamed from CDN)
   {
     id: 'dev_cdn_monotonous',
-    displayName: '15s Cloud Water',
+    displayName: '15s Cloud Wind',
     type: 'ambient',
-    audioUrl: `${CDN_BASE}/005%20-%20Waves/0456%20Water%20lap%20slow.mp3`,
-    imageUrl: `${DEV_IMAGES_BASE}/dev_cloud_water.png`,
+    audioUrl: `${DEV_IMAGES_BASE}/dev_wind_15s.mp3`,
+    imageUrl: `${DEV_IMAGES_BASE}/dev_cloud_wind.png`,
     category: 'Dev Samples',
   },
   {
     id: 'dev_cdn_changing',
     displayName: '15s Cloud Frogs',
     type: 'ambient',
-    audioUrl: `${CDN_BASE}/009%20-%20Wetlands/1022%20Swamp%20morning%20frogs.mp3`,
+    audioUrl: `${DEV_IMAGES_BASE}/dev_frogs_15s.mp3`,
     imageUrl: `${DEV_IMAGES_BASE}/dev_cloud_frogs.png`,
     category: 'Dev Samples',
   },
