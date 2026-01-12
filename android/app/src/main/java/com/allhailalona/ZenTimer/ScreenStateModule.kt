@@ -2,10 +2,10 @@ package com.allhailalona.ZenTimer
 
 import android.content.Context
 import android.os.PowerManager
+import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import com.facebook.react.bridge.Promise
 
 class ScreenStateModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 

@@ -3,6 +3,7 @@ import { Asset as ExpoAsset } from 'expo-asset';
 import { Asset } from '../types';
 import { assetCacheService } from './assetCacheService';
 import { debugLog } from './debugLogService';
+import { nativeAudioService } from './nativeAudioService';
 
 const FADE_DURATION = 400;
 const FADE_STEPS = 20;
@@ -26,6 +27,7 @@ class AudioService {
   private isLooping: boolean = false;
   private isAmbientPaused: boolean = false;
   private isTransitioning: boolean = false; // Prevents backup monitor interference during loop transitions
+  private useNativeAudio: boolean = false; // Whether ambient is playing via native module
 
   private bellSounds: Set<Audio.Sound> = new Set();
   private previewSound: Audio.Sound | null = null;
@@ -104,11 +106,44 @@ class AudioService {
     return uri ? { uri } : null;
   }
 
+  // Get audio URI string for native playback (extracts bundled assets if needed)
+  private async getAudioUriAsync(assetId: string, type: 'ambient' | 'bell'): Promise<string | null> {
+    const assets = type === 'ambient' ? this.ambientAssets : this.bellAssets;
+    const asset = assets.find((a) => a.id === assetId);
+    if (!asset) return null;
+
+    // Handle bundled assets - extract to local file
+    if (assetCacheService.isBundledAudio(asset)) {
+      const key = assetCacheService.getBundledAudioKey(asset);
+      if (!key || !this.bundledAudio[key]) return null;
+
+      // Check cache first
+      const cached = this.bundledAssetUris.get(key);
+      if (cached) return cached;
+
+      // Extract bundled asset to local file
+      try {
+        const expoAsset = ExpoAsset.fromModule(this.bundledAudio[key]);
+        await expoAsset.downloadAsync();
+        if (expoAsset.localUri) {
+          this.bundledAssetUris.set(key, expoAsset.localUri);
+          debugLog.log('Ambient', `📦 Extracted bundled asset: ${key} -> ${expoAsset.localUri}`);
+          return expoAsset.localUri;
+        }
+      } catch (error) {
+        debugLog.log('Ambient', `❌ Failed to extract bundled asset: ${error}`);
+      }
+      return null;
+    }
+
+    return assetCacheService.getAudioUri(asset);
+  }
+
   async playAmbient(assetId: string): Promise<boolean> {
     debugLog.log('Ambient', `🎬 playAmbient: ${assetId}`);
 
     // Skip if same ambient is already playing
-    if (this.currentAmbientId === assetId && this.ambientSound) {
+    if (this.currentAmbientId === assetId && (this.ambientSound || this.useNativeAudio)) {
       return true;
     }
 
@@ -117,17 +152,33 @@ class AudioService {
     try {
       await this.stopAmbient();
 
+      // Try native audio first (better background support)
+      const uri = await this.getAudioUriAsync(assetId, 'ambient');
+      if (uri && nativeAudioService.available()) {
+        debugLog.log('Ambient', `📍 Loading via native audio...`);
+        const success = await nativeAudioService.loadAndPlay(uri);
+        if (success) {
+          this.currentAmbientId = assetId;
+          this.useNativeAudio = true;
+          this.isLooping = true;
+          debugLog.log('Ambient', `✅ Playing via native audio`);
+          return true;
+        }
+        debugLog.log('Ambient', `⚠️ Native audio failed, falling back to expo-av`);
+      }
+
+      // Fallback to expo-av (for bundled assets or if native failed)
       const source = this.getAudioSource(assetId, 'ambient');
       if (!source) {
         debugLog.log('Ambient', '❌ No source found');
         return false;
       }
 
-      debugLog.log('Ambient', `📍 Loading ambient sound...`);
+      debugLog.log('Ambient', `📍 Loading ambient sound via expo-av...`);
 
       const { sound, status } = await Audio.Sound.createAsync(
         source,
-        { isLooping: true, shouldPlay: true, volume: 0 }
+        { isLooping: false, shouldPlay: true, volume: 0 }
       );
 
       // Check if this request is still current (handles rapid selection)
@@ -140,6 +191,7 @@ class AudioService {
       this.currentAmbientId = assetId;
       this.ambientDurationMs = (status as any).durationMillis ?? 0;
       this.isLooping = true;
+      this.useNativeAudio = false;
 
       debugLog.log('Ambient', `✅ Loaded | duration=${Math.round(this.ambientDurationMs / 1000)}s`);
 
@@ -281,6 +333,12 @@ class AudioService {
     this.ambientDurationMs = 0;
     this.clearLoopTimeout();
 
+    // Stop native audio if active
+    if (this.useNativeAudio) {
+      await nativeAudioService.stop();
+      this.useNativeAudio = false;
+    }
+
     if (this.ambientSound) {
       try {
         await this.ambientSound.stopAsync();
@@ -295,6 +353,15 @@ class AudioService {
   async fadeOutAmbient(durationMs: number): Promise<void> {
     this.isLooping = false;
     this.clearLoopTimeout();
+
+    // Use native fade if active (background-safe)
+    if (this.useNativeAudio) {
+      debugLog.log('Ambient', '📉 Native fade out and stop');
+      await nativeAudioService.fadeOutAndStop();
+      this.useNativeAudio = false;
+      this.currentAmbientId = null;
+      return;
+    }
 
     if (!this.ambientSound) return;
 
@@ -317,6 +384,13 @@ class AudioService {
     this.isAmbientPaused = true;
     this.clearLoopTimeout();
 
+    // Pause native audio if active
+    if (this.useNativeAudio) {
+      await nativeAudioService.pause();
+      debugLog.log('Ambient', '⏸️ Paused (native)');
+      return;
+    }
+
     if (this.ambientSound) {
       try {
         await this.ambientSound.pauseAsync();
@@ -329,6 +403,13 @@ class AudioService {
 
   async resumeAmbient(): Promise<void> {
     this.isAmbientPaused = false;
+
+    // Resume native audio if active
+    if (this.useNativeAudio) {
+      await nativeAudioService.resume();
+      debugLog.log('Ambient', '▶️ Resumed (native)');
+      return;
+    }
 
     if (this.ambientSound) {
       try {
@@ -519,8 +600,8 @@ class AudioService {
         await this.checkAndRestartAmbient('Backup');
       }
 
-      // Periodic ambient check - skip if transitioning
-      if (this.ambientSound && this.currentAmbientId && !this.isAmbientPaused && !this.isTransitioning) {
+      // Periodic ambient check - skip if transitioning or using native audio
+      if (this.ambientSound && this.currentAmbientId && !this.isAmbientPaused && !this.isTransitioning && !this.useNativeAudio) {
         try {
           const ambientStatus = await this.ambientSound.getStatusAsync();
           if (ambientStatus.isLoaded && !(ambientStatus as any).isPlaying && this.isLooping) {
@@ -544,6 +625,8 @@ class AudioService {
 
   // Shared method to check and restart ambient sound
   private async checkAndRestartAmbient(source: string): Promise<void> {
+    // Native audio handles its own looping - skip checks
+    if (this.useNativeAudio) return;
     if (!this.ambientSound || !this.currentAmbientId || this.isAmbientPaused || this.isTransitioning) return;
 
     try {
