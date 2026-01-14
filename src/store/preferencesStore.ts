@@ -66,21 +66,23 @@ export function calculateBellTimes(
   totalSeconds: number,
   repeatBell: RepeatBellOptions
 ): number[] {
-  // Final bell always at end
-  const times: number[] = [totalSeconds];
-
-  if (!repeatBell.enabled || repeatBell.beforeEndSeconds >= totalSeconds) {
-    return times;
+  if (!repeatBell.enabled || repeatBell.beforeEndSeconds >= totalSeconds || repeatBell.count < 1) {
+    return [totalSeconds]; // Just the final bell
   }
 
-  // Calculate interval between bells
-  const interval = repeatBell.beforeEndSeconds / repeatBell.count;
+  const times: number[] = [];
 
-  // Add bells: first at beforeEndSeconds before end, then evenly spaced
+  // Calculate interval: for count bells over beforeEndSeconds,
+  // interval is beforeEndSeconds / (count - 1) so the last bell lands exactly at the end
+  const interval = repeatBell.count > 1
+    ? repeatBell.beforeEndSeconds / (repeatBell.count - 1)
+    : repeatBell.beforeEndSeconds;
+
+  // Add bells: evenly spaced from beforeEndSeconds before end to the end
   for (let i = 0; i < repeatBell.count; i++) {
     const bellTime = totalSeconds - repeatBell.beforeEndSeconds + i * interval;
-    if (bellTime > 0 && bellTime < totalSeconds) {
-      times.unshift(bellTime);
+    if (bellTime > 0) {
+      times.push(bellTime);
     }
   }
 
@@ -91,7 +93,9 @@ export function calculateBellTimes(
 }
 
 export function getIntervalDisplay(repeatBell: RepeatBellOptions): string {
-  const interval = repeatBell.beforeEndSeconds / repeatBell.count;
+  const interval = repeatBell.count > 1
+    ? repeatBell.beforeEndSeconds / (repeatBell.count - 1)
+    : repeatBell.beforeEndSeconds;
   const mins = Math.floor(interval / 60);
   const secs = Math.round(interval % 60);
 

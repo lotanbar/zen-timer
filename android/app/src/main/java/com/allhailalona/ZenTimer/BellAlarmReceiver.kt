@@ -45,9 +45,31 @@ class BellAlarmReceiver : BroadcastReceiver() {
                         .build()
                 )
                 setDataSource(context, Uri.parse(bellUri))
+                setVolume(0f, 0f) // Start at 0 for fade in
+
                 setOnPreparedListener { mp ->
                     mp.start()
-                    Log.d(TAG, "Bell playing")
+                    Log.d(TAG, "Bell playing with fade in")
+
+                    // Fade in over 2 seconds to 60% volume
+                    val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                    val targetVolume = 0.6f
+                    val fadeDurationMs = 2000L
+                    val steps = 20
+                    val stepDuration = fadeDurationMs / steps
+
+                    var currentStep = 0
+                    val fadeRunnable = object : Runnable {
+                        override fun run() {
+                            if (currentStep <= steps) {
+                                val volume = (currentStep.toFloat() / steps) * targetVolume
+                                mp.setVolume(volume, volume)
+                                currentStep++
+                                handler.postDelayed(this, stepDuration)
+                            }
+                        }
+                    }
+                    handler.post(fadeRunnable)
                 }
                 setOnCompletionListener { mp ->
                     mp.release()
