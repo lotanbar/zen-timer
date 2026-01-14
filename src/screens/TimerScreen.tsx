@@ -110,16 +110,22 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       // Load generated ambience samples from storage
       const loadedAmbienceSamples = await sampleGenerator.getOrCreateSamples();
       const allAmbienceAssets = isDevMode ? [...DEV_SAMPLE_ASSETS, ...loadedAmbienceSamples] : loadedAmbienceSamples;
-      const ambientAsset = allAmbienceAssets.find(a => a.id === ambienceId);
+      const ambientAsset = ambienceId ? allAmbienceAssets.find(a => a.id === ambienceId) : null;
       const bellAsset = BELL_ASSETS.find(b => b.id === bellId);
 
-      if (!ambientAsset || !bellAsset) {
-        console.error('[TimerScreen] Assets not found', { ambienceId, bellId });
+      if (!bellAsset) {
+        console.error('[TimerScreen] Bell asset not found', { bellId });
         navigation.goBack();
         return;
       }
 
-      const ambientUri = ambientAsset.audioUrl;
+      if (ambienceId && !ambientAsset) {
+        console.error('[TimerScreen] Ambience asset not found', { ambienceId });
+        navigation.goBack();
+        return;
+      }
+
+      const ambientUri = ambientAsset?.audioUrl || '';
       const bellUri = bellAsset.audioUrl;
 
       // Calculate bell times

@@ -78,9 +78,13 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
       setAssets(allAssets);
       setStarredIds(starred);
       audioService.setAmbientAssets(allAssets);
-      // Set initial selection
-      const matchingId = allAssets.find(s => s.id === storeAmbienceId)?.id || allAssets[0]?.id;
-      setLocalAmbienceId(matchingId);
+      // Set initial selection - use null if ambienceId is null
+      if (!storeAmbienceId) {
+        setLocalAmbienceId(null);
+      } else {
+        const matchingId = allAssets.find(s => s.id === storeAmbienceId)?.id || allAssets[0]?.id;
+        setLocalAmbienceId(matchingId);
+      }
     };
     loadData();
   }, [storeAmbienceId, isDevMode]);
@@ -190,8 +194,14 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
     await sampleGenerator.saveStarredIds(newStarredIds);
   };
 
-  const handleAmbienceSelect = (id: string) => {
+  const handleAmbienceSelect = (id: string | null) => {
     setLocalAmbienceId(id);
+
+    // Stop preview if null (none) is selected
+    if (id === null) {
+      audioService.stopPreview();
+      return;
+    }
 
     // Toggle off if clicking currently playing item
     if (audioService.isPreviewPlaying(id)) {
@@ -232,8 +242,10 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
           <GridAssetPicker
             assets={filteredAssets}
             selectedId={localAmbienceId}
-            onSelect={(id) => id && handleAmbienceSelect(id)}
+            onSelect={handleAmbienceSelect}
             onLongPress={handleLongPress}
+            showNoOption={true}
+            noOptionLabel="None"
             pinnedIds={starredIds}
             loadingId={loadingId}
           />
