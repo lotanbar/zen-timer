@@ -5,6 +5,7 @@ export const COLORS = {
   accent: '#FFFFFF',
   border: '#222222',
   overlay: 'rgba(255, 255, 255, 0.1)',
+  surface: '#1a1a1a',
 };
 
 export const FONTS = {
