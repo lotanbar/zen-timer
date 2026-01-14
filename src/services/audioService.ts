@@ -26,7 +26,6 @@ class AudioService {
   private loopTimeoutId: NodeJS.Timeout | null = null;
   private isLooping: boolean = false;
   private isAmbientPaused: boolean = false;
-  private isTransitioning: boolean = false; // Prevents backup monitor interference during loop transitions
   private useNativeAudio: boolean = false; // Whether ambient is playing via native module
 
   private bellSounds: Set<Audio.Sound> = new Set();
@@ -47,10 +46,6 @@ class AudioService {
   private scheduledBellTimes: number[] = [];
   private playedBellTimes: Set<number> = new Set();
   private timerBellId: string | null = null;
-
-  // BACKUP: JS interval as fallback monitor (in case expo-av callbacks stop)
-  private backupIntervalId: NodeJS.Timeout | null = null;
-  private lastCallbackTime: number = 0;
 
   // Asset registry - populated dynamically
   private ambientAssets: Asset[] = [];
@@ -226,47 +221,37 @@ class AudioService {
   private async performLoopTransition(): Promise<void> {
     if (!this.ambientSound || !this.isLooping || this.isAmbientPaused) return;
 
-    this.isTransitioning = true;
     debugLog.log('Ambient', `🔄 Starting loop transition: fade out`);
 
     try {
-      // 1. Fade out over 10 seconds
+      // 1. Fade out over 5 seconds
       await this.fadeOutGradual(this.ambientSound, LOOP_FADE_OUT_DURATION);
 
-      if (!this.isLooping || this.isAmbientPaused) {
-        this.isTransitioning = false;
-        return;
-      }
+      if (!this.isLooping || this.isAmbientPaused) return;
 
-      // 2. Pause during silence
+      // 2. Pause during silence (currently 0ms, but kept for flexibility)
       await this.ambientSound.pauseAsync();
-      debugLog.log('Ambient', `🔇 Silence period (${LOOP_SILENCE_DURATION / 1000}s)`);
-
-      // 3. Wait for silence period
-      await new Promise(resolve => setTimeout(resolve, LOOP_SILENCE_DURATION));
-
-      if (!this.isLooping || this.isAmbientPaused) {
-        this.isTransitioning = false;
-        return;
+      if (LOOP_SILENCE_DURATION > 0) {
+        debugLog.log('Ambient', `🔇 Silence period (${LOOP_SILENCE_DURATION / 1000}s)`);
+        await new Promise(resolve => setTimeout(resolve, LOOP_SILENCE_DURATION));
       }
 
-      // 4. Seek to beginning and start playing
+      if (!this.isLooping || this.isAmbientPaused) return;
+
+      // 3. Seek to beginning and start playing
       await this.ambientSound.setPositionAsync(0);
       await this.ambientSound.playAsync();
 
-      // 5. Fade in over 10 seconds
+      // 4. Fade in over 5 seconds
       debugLog.log('Ambient', `🔊 Fade in`);
       await this.fadeInGradual(this.ambientSound, LOOP_FADE_IN_DURATION);
 
-      this.isTransitioning = false;
-
       if (!this.isLooping) return;
 
-      // 6. Schedule next loop
+      // 5. Schedule next loop
       debugLog.log('Ambient', `✅ Loop complete, scheduling next`);
       this.scheduleLoopTransition();
     } catch (error) {
-      this.isTransitioning = false;
       debugLog.log('Ambient', `❌ Loop transition error: ${error}`);
       // Try to recover by restarting
       if (this.isLooping && this.currentAmbientId) {
@@ -328,7 +313,6 @@ class AudioService {
   async stopAmbient(): Promise<void> {
     this.isLooping = false;
     this.isAmbientPaused = false;
-    this.isTransitioning = false;
     this.currentAmbientId = null;
     this.ambientDurationMs = 0;
     this.clearLoopTimeout();
@@ -523,7 +507,7 @@ class AudioService {
     );
   }
 
-  // Start background timer - uses silent audio to keep callbacks firing
+  // Start background timer - uses native AlarmManager for precise bell timing
   async startTimer(
     durationSeconds: number,
     bellId: string,
@@ -541,9 +525,34 @@ class AudioService {
     this.scheduledBellTimes = bellTimes;
     this.playedBellTimes = new Set();
     this.timerBellId = bellId;
-    this.lastCallbackTime = Date.now();
 
     try {
+      // Try native bell scheduling first (works even when screen is off)
+      if (nativeAudioService.available()) {
+        const bellUri = await this.getAudioUriAsync(bellId, 'bell');
+        if (bellUri && bellTimes.length > 0) {
+          const success = await nativeAudioService.scheduleBells(bellUri, bellTimes);
+          if (success) {
+            debugLog.log('Timer', `✅ Native bells scheduled: ${bellTimes.length} alarms`);
+
+            // Schedule timer completion callback
+            setTimeout(() => {
+              if (!this.timerCompleted) {
+                this.timerCompleted = true;
+                this.fadeOutAmbient(5000);
+                if (this.timerCallback) {
+                  this.timerCallback();
+                }
+              }
+            }, this.timerDurationMs);
+
+            return;
+          }
+        }
+        debugLog.log('Timer', '⚠️ Native bells failed, falling back to expo-av');
+      }
+
+      // Fallback: expo-av silent audio approach (less reliable when screen off)
       debugLog.log('Timer', '🔇 Creating silent audio for background callbacks...');
       const { sound } = await Audio.Sound.createAsync(
         SILENCE_AUDIO,
@@ -555,113 +564,12 @@ class AudioService {
 
       // This callback fires even in background!
       sound.setOnPlaybackStatusUpdate(this.handleTimerUpdate);
-
-      // BACKUP: Start JS interval as secondary monitor
-      this.startBackupMonitor();
     } catch (error) {
       debugLog.log('Timer', `❌ Failed to start timer audio: ${error}`);
     }
   }
 
-  // Backup JS interval that runs independently of expo-av
-  private startBackupMonitor(): void {
-    this.stopBackupMonitor();
-
-    debugLog.log('Backup', '🛡️ Starting backup JS interval monitor (every 3s)');
-
-    this.backupIntervalId = setInterval(async () => {
-      if (this.timerCompleted) return;
-
-      const now = Date.now();
-      const timeSinceLastCallback = now - this.lastCallbackTime;
-      const elapsedSeconds = Math.floor((now - this.timerStartTime) / 1000);
-
-      // If expo-av callback hasn't fired in 5+ seconds, something is wrong
-      if (timeSinceLastCallback > 5000) {
-        debugLog.log('Backup', `⚠️ CALLBACK STALL DETECTED! Last callback ${Math.round(timeSinceLastCallback / 1000)}s ago | elapsed=${elapsedSeconds}s`);
-
-        // Try to restart the timer sound
-        if (this.timerSound) {
-          try {
-            const status = await this.timerSound.getStatusAsync();
-            debugLog.log('Backup', `Timer sound status: isLoaded=${status.isLoaded} isPlaying=${(status as any).isPlaying}`);
-
-            if (status.isLoaded && !(status as any).isPlaying) {
-              debugLog.log('Backup', '🔧 Timer sound stopped, restarting...');
-              await this.timerSound.playAsync();
-              debugLog.log('Backup', '✅ Timer sound restarted');
-            }
-          } catch (err) {
-            debugLog.log('Backup', `❌ Failed to check/restart timer: ${err}`);
-          }
-        }
-
-        // Check ambient sound
-        await this.checkAndRestartAmbient('Backup');
-      }
-
-      // Periodic ambient check - skip if transitioning or using native audio
-      if (this.ambientSound && this.currentAmbientId && !this.isAmbientPaused && !this.isTransitioning && !this.useNativeAudio) {
-        try {
-          const ambientStatus = await this.ambientSound.getStatusAsync();
-          if (ambientStatus.isLoaded && !(ambientStatus as any).isPlaying && this.isLooping) {
-            debugLog.log('Backup', `⚠️ Ambient not playing (backup check)`);
-            await this.checkAndRestartAmbient('Backup-Periodic');
-          }
-        } catch (err) {
-          debugLog.log('Backup', `⚠️ Ambient check failed: ${err}`);
-        }
-      }
-    }, 3000);
-  }
-
-  private stopBackupMonitor(): void {
-    if (this.backupIntervalId) {
-      clearInterval(this.backupIntervalId);
-      this.backupIntervalId = null;
-      debugLog.log('Backup', '🛑 Backup monitor stopped');
-    }
-  }
-
-  // Shared method to check and restart ambient sound
-  private async checkAndRestartAmbient(source: string): Promise<void> {
-    // Native audio handles its own looping - skip checks
-    if (this.useNativeAudio) return;
-    if (!this.ambientSound || !this.currentAmbientId || this.isAmbientPaused || this.isTransitioning) return;
-
-    try {
-      const status = await this.ambientSound.getStatusAsync();
-      if (!status.isLoaded) {
-        debugLog.log(source, '⚠️ Ambient not loaded, recreating...');
-        const assetId = this.currentAmbientId;
-        await this.stopAmbient();
-        await this.playAmbient(assetId);
-        return;
-      }
-
-      if (!(status as any).isPlaying && this.isLooping) {
-        debugLog.log(source, `🔧 Ambient stopped, restarting...`);
-        await this.ambientSound.setPositionAsync(0);
-        await this.ambientSound.playAsync();
-        await this.ambientSound.setVolumeAsync(1);
-        this.scheduleLoopTransition();
-        debugLog.log(source, '✅ Ambient restarted');
-      }
-    } catch (err: any) {
-      if (err?.code === 'E_AUDIO_NOPLAYER') {
-        debugLog.log(source, '🔧 Native player destroyed, recreating...');
-        const assetId = this.currentAmbientId;
-        await this.stopAmbient();
-        await this.playAmbient(assetId);
-      } else {
-        debugLog.log(source, `❌ Failed to restart ambient: ${err}`);
-      }
-    }
-  }
-
   private handleTimerUpdate = async (status: AVPlaybackStatus): Promise<void> => {
-    // Track that callback fired (for backup monitor)
-    this.lastCallbackTime = Date.now();
 
     if (!status.isLoaded) return;
     if (this.timerCompleted) return;
@@ -709,8 +617,8 @@ class AudioService {
     this.timerCallback = null;
     this.timerBellId = null;
 
-    // Stop backup monitor
-    this.stopBackupMonitor();
+    // Cancel native bell alarms
+    await nativeAudioService.cancelBells();
 
     if (this.timerSound) {
       try {

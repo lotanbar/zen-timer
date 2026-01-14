@@ -62,6 +62,11 @@ yarn-error.*
 !/android/app/src/main/java/com/allhailalona/ZenTimer/ScreenStateModule.kt
 !/android/app/src/main/java/com/allhailalona/ZenTimer/ScreenStatePackage.kt
 !/android/app/src/main/java/com/allhailalona/ZenTimer/MainApplication.kt
+!/android/app/src/main/java/com/allhailalona/ZenTimer/NativeAudioModule.kt
+!/android/app/src/main/java/com/allhailalona/ZenTimer/NativeAudioPackage.kt
+!/android/app/src/main/java/com/allhailalona/ZenTimer/AudioPlaybackService.kt
+!/android/app/src/main/java/com/allhailalona/ZenTimer/BellAlarmReceiver.kt
+!/android/app/src/main/AndroidManifest.xml
 
 # Bell assets (now on bunny.net CDN)
 bells_audio/

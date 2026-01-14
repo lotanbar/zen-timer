@@ -85,6 +85,38 @@ class NativeAudioService {
       console.error('[NativeAudio] Failed to resume:', error);
     }
   }
+
+  /**
+   * Schedule bells to play at specific times using native AlarmManager
+   * This ensures bells fire precisely even when screen is off
+   */
+  async scheduleBells(bellUri: string, bellTimesSeconds: number[]): Promise<boolean> {
+    if (!this.isAvailable) {
+      console.warn('[NativeAudio] Bell scheduling not available on this platform');
+      return false;
+    }
+
+    try {
+      await NativeAudioModule.scheduleBells(bellUri, bellTimesSeconds);
+      return true;
+    } catch (error) {
+      console.error('[NativeAudio] Failed to schedule bells:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Cancel all scheduled bells
+   */
+  async cancelBells(): Promise<void> {
+    if (!this.isAvailable) return;
+
+    try {
+      await NativeAudioModule.cancelBells();
+    } catch (error) {
+      console.error('[NativeAudio] Failed to cancel bells:', error);
+    }
+  }
 }
 
 export const nativeAudioService = new NativeAudioService();
