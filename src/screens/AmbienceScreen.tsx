@@ -63,7 +63,7 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showRefreshDialog, setShowRefreshDialog] = useState(false);
-  const [countdown, setCountdown] = useState(10);
+  const [countdown, setCountdown] = useState(5);
   const [starredIds, setStarredIds] = useState<string[]>([]);
 
   // Load saved samples and starred IDs on mount or when dev mode changes
@@ -121,7 +121,13 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
   // Countdown timer for refresh dialog
   useEffect(() => {
     if (!showRefreshDialog) {
-      setCountdown(10);
+      setCountdown(isDevMode ? 0 : 5);
+      return;
+    }
+
+    // Skip countdown in dev mode
+    if (isDevMode) {
+      setCountdown(0);
       return;
     }
 
@@ -132,7 +138,7 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [showRefreshDialog, countdown]);
+  }, [showRefreshDialog, countdown, isDevMode]);
 
   const handleRefreshPress = () => {
     setShowRefreshDialog(true);
@@ -143,17 +149,27 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
   };
 
   const handleRefreshConfirm = async () => {
-    if (countdown > 0) return;
+    if (!isDevMode && countdown > 0) return;
 
     setShowRefreshDialog(false);
     setIsRefreshing(true);
     await audioService.stopPreview();
-    const newSamples = await sampleGenerator.generateAndSaveWithStarred(assets, starredIds);
-    setAssets(newSamples);
-    audioService.setAmbientAssets(newSamples);
+
+    // Step 1: Generate new samples (one per category), keeping starred ones
+    // Step 2: Save to storage (happens inside this function)
+    await sampleGenerator.generateAndSaveWithStarred(assets, starredIds);
+
+    // Step 3: Refetch from storage
+    const refetchedSamples = await sampleGenerator.getOrCreateSamples();
+
+    // Step 4: Display
+    const allAssets = isDevMode ? [...DEV_SAMPLE_ASSETS, ...refetchedSamples] : refetchedSamples;
+    setAssets(allAssets);
+    audioService.setAmbientAssets(allAssets);
+
     // Select first non-starred item or first item
-    const firstUnstarred = newSamples.find(s => !starredIds.includes(s.id));
-    setLocalAmbienceId(firstUnstarred?.id || newSamples[0]?.id);
+    const firstUnstarred = allAssets.find(s => !starredIds.includes(s.id));
+    setLocalAmbienceId(firstUnstarred?.id || allAssets[0]?.id);
     scrollViewRef.current?.scrollTo({ y: 0, animated: true });
     setIsRefreshing(false);
   };
@@ -281,19 +297,19 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
               <TouchableOpacity
                 style={[
                   styles.modalConfirmButton,
-                  countdown > 0 && styles.modalConfirmButtonDisabled,
+                  !isDevMode && countdown > 0 && styles.modalConfirmButtonDisabled,
                 ]}
                 onPress={handleRefreshConfirm}
-                activeOpacity={countdown > 0 ? 1 : 0.7}
-                disabled={countdown > 0}
+                activeOpacity={!isDevMode || countdown === 0 ? 0.7 : 1}
+                disabled={!isDevMode && countdown > 0}
               >
                 <Text
                   style={[
                     styles.modalConfirmText,
-                    countdown > 0 && styles.modalConfirmTextDisabled,
+                    !isDevMode && countdown > 0 && styles.modalConfirmTextDisabled,
                   ]}
                 >
-                  {countdown > 0 ? `Confirm (${countdown})` : 'Confirm'}
+                  {!isDevMode && countdown > 0 ? `Confirm (${countdown})` : 'Confirm'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -394,7 +410,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   modalText: {
-    color: COLORS.textSecondary || '#888',
+    color: COLORS.text,
     fontSize: FONTS.size.medium,
     textAlign: 'center',
     marginBottom: 24,

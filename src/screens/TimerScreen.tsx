@@ -18,10 +18,10 @@ import { useSessionStore } from '../store/sessionStore';
 import { audioService } from '../services/audioService';
 import { COLORS, FONTS } from '../constants/theme';
 import { RootStackParamList } from '../types';
-import { SAMPLE_ASSETS } from '../constants/sampleAssets';
 import { DEV_SAMPLE_ASSETS } from '../constants/devAssets';
 import { BELL_ASSETS } from '../constants/assets';
 import { useDevModeStore } from '../store/devModeStore';
+import * as sampleGenerator from '../services/sampleGeneratorService';
 
 type TimerScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Timer'>;
@@ -107,8 +107,9 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
 
       if (!isMountedRef.current) return;
 
-      // Look up asset URIs
-      const allAmbienceAssets = isDevMode ? [...DEV_SAMPLE_ASSETS, ...SAMPLE_ASSETS] : SAMPLE_ASSETS;
+      // Load generated ambience samples from storage
+      const loadedAmbienceSamples = await sampleGenerator.getOrCreateSamples();
+      const allAmbienceAssets = isDevMode ? [...DEV_SAMPLE_ASSETS, ...loadedAmbienceSamples] : loadedAmbienceSamples;
       const ambientAsset = allAmbienceAssets.find(a => a.id === ambienceId);
       const bellAsset = BELL_ASSETS.find(b => b.id === bellId);
 

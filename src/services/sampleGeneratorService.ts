@@ -286,16 +286,16 @@ export async function generateAndSave(): Promise<Asset[]> {
 }
 
 /**
- * Load existing samples or return defaults if none exist.
- * Does NOT auto-generate - returns SAMPLE_ASSETS as fallback.
+ * Load existing samples from storage, or generate if storage is empty.
+ * Always fetch from storage - samples are temporary, never hardcoded.
  */
 export async function getOrCreateSamples(): Promise<Asset[]> {
   const saved = await loadSamples();
   if (saved && saved.length > 0) {
     return saved;
   }
-  // Return default samples without generating new ones
-  return SAMPLE_ASSETS;
+  // Storage is empty - generate new samples (one per category) and save
+  return await generateAndSave();
 }
 
 /**
@@ -328,11 +328,25 @@ export async function loadStarredIds(): Promise<string[]> {
  * Get the category for a given asset.
  */
 export function getCategoryForAsset(asset: Asset): string | null {
+  // First check if it's a bunny-generated asset (bunny_XXXX)
   for (const [category, tracks] of Object.entries(BUNNY_CATEGORIES)) {
     if (tracks.some(t => `bunny_${t.id}` === asset.id)) {
       return category;
     }
   }
+
+  // If not found, check if it's a default sample asset (sample_XXXX)
+  // Match by category name, accounting for "001 - " prefix in BUNNY_CATEGORIES
+  if (asset.id.startsWith('sample_') && asset.category) {
+    for (const category of Object.keys(BUNNY_CATEGORIES)) {
+      // Remove "001 - " prefix from category for comparison
+      const cleanCategory = category.replace(/^\d+\s*-\s*/, '');
+      if (cleanCategory === asset.category) {
+        return category;
+      }
+    }
+  }
+
   return null;
 }
 

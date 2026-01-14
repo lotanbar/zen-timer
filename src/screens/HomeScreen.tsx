@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { StepButton, StepButtonRef, Toast } from '../components';
 import { usePreferencesStore, getTotalSeconds } from '../store/preferencesStore';
 import { useDevModeStore } from '../store/devModeStore';
@@ -19,6 +20,7 @@ import { getBellAssets } from '../services/assetDiscoveryService';
 import { SAMPLE_ASSETS } from '../constants/sampleAssets';
 import { DEV_SAMPLE_ASSETS, DEV_SAMPLE_IDS } from '../constants/devAssets';
 import { RootStackParamList, Asset } from '../types';
+import * as sampleGenerator from '../services/sampleGeneratorService';
 
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -47,6 +49,7 @@ function getRandomInterval() {
 export function HomeScreen({ navigation }: HomeScreenProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [bellAssets, setBellAssets] = useState<Asset[]>([]);
+  const [ambienceAssets, setAmbienceAssets] = useState<Asset[]>([]);
 
   const durationRef = useRef<StepButtonRef>(null);
   const ambienceRef = useRef<StepButtonRef>(null);
@@ -74,13 +77,17 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
       try {
         const bells = await getBellAssets();
         setBellAssets(bells);
-        audioService.setAssets(SAMPLE_ASSETS, bells);
+
+        // Load generated ambience samples (or defaults if none exist)
+        const loadedAmbienceSamples = await sampleGenerator.getOrCreateSamples();
+        setAmbienceAssets(loadedAmbienceSamples);
+        audioService.setAssets(loadedAmbienceSamples, bells);
 
         // Set default ambience if none selected, or if dev sample selected but dev mode off
         const isDevSample = ambienceId && DEV_SAMPLE_IDS.includes(ambienceId);
-        const ambienceExists = ambienceId && SAMPLE_ASSETS.some(a => a.id === ambienceId);
+        const ambienceExists = ambienceId && loadedAmbienceSamples.some(a => a.id === ambienceId);
         if (!ambienceId || (isDevSample && !isDevMode) || (!ambienceExists && !isDevSample)) {
-          const randomAmbience = pickRandom(SAMPLE_ASSETS);
+          const randomAmbience = pickRandom(loadedAmbienceSamples);
           setAmbience(randomAmbience.id);
         }
 
@@ -98,6 +105,18 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     }
     loadAssets();
   }, [isDevMode]);
+
+  // Reload ambience samples when screen is focused (in case user refreshed in AmbienceScreen)
+  useFocusEffect(
+    useCallback(() => {
+      async function reloadAmbienceSamples() {
+        const loadedAmbienceSamples = await sampleGenerator.getOrCreateSamples();
+        setAmbienceAssets(loadedAmbienceSamples);
+        audioService.setAmbientAssets(loadedAmbienceSamples);
+      }
+      reloadAmbienceSamples();
+    }, [])
+  );
 
   // Three independent pulse timers so multiple buttons can light up at once
   useEffect(() => {
@@ -196,7 +215,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   };
 
   // Include dev samples in lookup when dev mode is on
-  const allAmbienceAssets = isDevMode ? [...DEV_SAMPLE_ASSETS, ...SAMPLE_ASSETS] : SAMPLE_ASSETS;
+  const allAmbienceAssets = isDevMode ? [...DEV_SAMPLE_ASSETS, ...ambienceAssets] : ambienceAssets;
   const selectedAmbience = allAmbienceAssets.find(a => a.id === ambienceId);
   const selectedBell = bellAssets.find(b => b.id === bellId);
 
