@@ -203,7 +203,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   const durationValue = formatDuration(duration.hours, duration.minutes, duration.seconds);
   const ambienceValue = selectedAmbience?.displayName || 'None';
   const bellValue = repeatBell.enabled
-    ? `${selectedBell?.displayName || bellId} x${repeatBell.count + 1}`
+    ? `${selectedBell?.displayName || bellId} x${repeatBell.count}`
     : selectedBell?.displayName || bellId;
 
   const handleNavigate = (screen: 'Duration' | 'Ambience' | 'Bell') => {

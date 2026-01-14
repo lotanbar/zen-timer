@@ -77,7 +77,7 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
       const allAssets = isDevMode ? [...DEV_SAMPLE_ASSETS, ...samples] : samples;
       setAssets(allAssets);
       setStarredIds(starred);
-      audioService.setAssets(allAssets, []);
+      audioService.setAmbientAssets(allAssets);
       // Set initial selection
       const matchingId = allAssets.find(s => s.id === storeAmbienceId)?.id || allAssets[0]?.id;
       setLocalAmbienceId(matchingId);
@@ -150,7 +150,7 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
     await audioService.stopPreview();
     const newSamples = await sampleGenerator.generateAndSaveWithStarred(assets, starredIds);
     setAssets(newSamples);
-    audioService.setAssets(newSamples, []);
+    audioService.setAmbientAssets(newSamples);
     // Select first non-starred item or first item
     const firstUnstarred = newSamples.find(s => !starredIds.includes(s.id));
     setLocalAmbienceId(firstUnstarred?.id || newSamples[0]?.id);

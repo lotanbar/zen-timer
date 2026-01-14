@@ -41,7 +41,7 @@ export function BellScreen({ navigation }: BellScreenProps) {
       try {
         const bells = await getBellAssets();
         setBellAssets(bells);
-        audioService.setAssets([], bells);
+        audioService.setBellAssets(bells);
       } catch (error) {
         console.error('Failed to load bell assets:', error);
       } finally {

@@ -50,13 +50,26 @@ class NativeAudioService {
   /**
    * Fade out and stop playback
    */
-  async fadeOutAndStop(): Promise<void> {
+  async fadeOutAndStop(durationMs: number = 5000): Promise<void> {
     if (!this.isAvailable) return;
 
     try {
-      await NativeAudioModule.fadeOutAndStop();
+      await NativeAudioModule.fadeOutAndStop(durationMs);
     } catch (error) {
       console.error('[NativeAudio] Failed to fade out and stop:', error);
+    }
+  }
+
+  /**
+   * Fade volume down without stopping
+   */
+  async fadeVolume(durationMs: number): Promise<void> {
+    if (!this.isAvailable) return;
+
+    try {
+      await NativeAudioModule.fadeVolume(durationMs);
+    } catch (error) {
+      console.error('[NativeAudio] Failed to fade volume:', error);
     }
   }
 

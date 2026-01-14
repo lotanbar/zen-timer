@@ -7,6 +7,8 @@ import {
   AppState,
   AppStateStatus,
   useWindowDimensions,
+  NativeEventEmitter,
+  NativeModules,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -14,9 +16,12 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { usePreferencesStore, getTotalSeconds, calculateBellTimes } from '../store/preferencesStore';
 import { useSessionStore } from '../store/sessionStore';
 import { audioService } from '../services/audioService';
-import { isScreenInteractive } from '../services/screenStateService';
 import { COLORS, FONTS } from '../constants/theme';
 import { RootStackParamList } from '../types';
+import { SAMPLE_ASSETS } from '../constants/sampleAssets';
+import { DEV_SAMPLE_ASSETS } from '../constants/devAssets';
+import { BELL_ASSETS } from '../constants/assets';
+import { useDevModeStore } from '../store/devModeStore';
 
 type TimerScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Timer'>;
@@ -44,15 +49,12 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   const { addSession } = useSessionStore();
   const totalSeconds = getTotalSeconds(duration);
   const [remaining, setRemaining] = useState(totalSeconds);
-  const [isPaused, setIsPaused] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(Date.now());
-  const pausedTimeRef = useRef<number>(0); // Accumulated paused time
-  const pauseStartRef = useRef<number | null>(null);
   const isCompletedRef = useRef(false);
   const isMountedRef = useRef(true);
 
-  const handleComplete = useCallback(() => {
+  const handleComplete = useCallback(async () => {
     if (isCompletedRef.current) return;
     isCompletedRef.current = true;
 
@@ -72,49 +74,30 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       bellId,
     });
 
-    // Navigate back (called after bell finishes playing)
+    // Native Kotlin sends TIMER_COMPLETE AFTER fade is done, so navigate immediately
+    await audioService.stopAll();
     navigation.goBack();
   }, [totalSeconds, ambienceId, bellId, addSession, navigation]);
 
-  // Handle app state changes:
-  // - When going to background: pause ONLY if screen is still on (user switched apps)
-  // - When screen is turned off: keep playing (meditation continues)
-  // - When returning to foreground: update display, check completion
+  // Listen for native timer completion event (fires even when screen is off)
   useEffect(() => {
-    const handleAppStateChange = async (nextAppState: AppStateStatus) => {
-      if (isCompletedRef.current) return;
+    const { NativeAudioModule } = NativeModules;
+    if (!NativeAudioModule) return;
 
-      if (nextAppState === 'background' || nextAppState === 'inactive') {
-        // Check if screen is still on (user switched apps) vs screen turned off
-        const screenOn = await isScreenInteractive();
-        if (screenOn && !isPaused) {
-          // User switched to another app with screen on - pause the meditation
-          pauseStartRef.current = Date.now();
-          setIsPaused(true);
-          audioService.pauseAmbient();
-        }
-        // If screen is off, keep playing - the background timer handles everything
-      } else if (nextAppState === 'active') {
-        // Recalculate remaining time for display (accounting for any pauses)
-        let totalPausedMs = pausedTimeRef.current;
-        if (pauseStartRef.current) {
-          totalPausedMs += Date.now() - pauseStartRef.current;
-        }
-        const elapsedMs = Date.now() - startTimeRef.current - totalPausedMs;
-        const elapsedSeconds = Math.floor(elapsedMs / 1000);
-        const newRemaining = Math.max(0, totalSeconds - elapsedSeconds);
-        setRemaining(newRemaining);
-
-        // Check if timer completed while in background
-        if (audioService.isTimerCompleted()) {
-          handleComplete();
-        }
+    const eventEmitter = new NativeEventEmitter(NativeAudioModule);
+    const subscription = eventEmitter.addListener('onTimerComplete', () => {
+      console.log('[Timer] Native timer complete event received');
+      if (!isCompletedRef.current && isMountedRef.current) {
+        handleComplete();
       }
-    };
+    });
 
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
-  }, [totalSeconds, handleComplete, isPaused]);
+  }, [handleComplete]);
+
+  // Native Kotlin handles ALL audio - screen on/off, background, fades
+  // JS just needs to pass URIs and wait for completion signal
+  const { isDevMode } = useDevModeStore();
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -124,37 +107,55 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
 
       if (!isMountedRef.current) return;
 
-      // Start ambient if selected (should be pre-cached)
-      if (ambienceId) {
-        await audioService.playAmbient(ambienceId);
+      // Look up asset URIs
+      const allAmbienceAssets = isDevMode ? [...DEV_SAMPLE_ASSETS, ...SAMPLE_ASSETS] : SAMPLE_ASSETS;
+      const ambientAsset = allAmbienceAssets.find(a => a.id === ambienceId);
+      const bellAsset = BELL_ASSETS.find(b => b.id === bellId);
+
+      if (!ambientAsset || !bellAsset) {
+        console.error('[TimerScreen] Assets not found', { ambienceId, bellId });
+        navigation.goBack();
+        return;
       }
 
-      // Calculate bell times (excluding the final bell which is handled by completion)
+      const ambientUri = ambientAsset.audioUrl;
+      const bellUri = bellAsset.audioUrl;
+
+      // Calculate bell times
       const bellTimes = calculateBellTimes(totalSeconds, repeatBell);
 
-      // Start the background timer - this handles bells and completion even when screen is off
-      await audioService.startTimer(totalSeconds, bellId, bellTimes, () => {
-        if (isMountedRef.current) {
-          handleComplete();
-        }
+      console.log('[TimerScreen] Starting native meditation timer', {
+        ambientUri,
+        bellUri,
+        bellTimes,
+        duration: totalSeconds,
       });
+
+      // Single native call - Kotlin handles EVERYTHING
+      const success = await audioService.startMeditationTimer(
+        ambientUri,
+        bellUri,
+        bellTimes,
+        totalSeconds
+      );
+
+      if (!success) {
+        console.error('[TimerScreen] Failed to start native timer');
+        navigation.goBack();
+        return;
+      }
+
+      console.log('[TimerScreen] Native timer started successfully');
     };
 
     init();
     startTimeRef.current = Date.now();
 
-    // Simple interval just for UI updates (ok if paused in background)
+    // Simple UI-only countdown
     intervalRef.current = setInterval(() => {
       if (!isMountedRef.current || isCompletedRef.current) return;
 
-      // Calculate elapsed time excluding paused periods
-      let totalPausedMs = pausedTimeRef.current;
-      if (pauseStartRef.current) {
-        // Currently paused, add ongoing pause duration
-        totalPausedMs += Date.now() - pauseStartRef.current;
-      }
-
-      const elapsedMs = Date.now() - startTimeRef.current - totalPausedMs;
+      const elapsedMs = Date.now() - startTimeRef.current;
       const elapsedSeconds = Math.floor(elapsedMs / 1000);
       const newRemaining = Math.max(0, totalSeconds - elapsedSeconds);
 
@@ -168,24 +169,7 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
       }
       audioService.stopAll();
     };
-  }, [ambienceId, totalSeconds, repeatBell, bellId, handleComplete]);
-
-  const handlePauseResume = useCallback(async () => {
-    if (isPaused) {
-      // Resume
-      if (pauseStartRef.current) {
-        pausedTimeRef.current += Date.now() - pauseStartRef.current;
-        pauseStartRef.current = null;
-      }
-      setIsPaused(false);
-      await audioService.resumeAmbient();
-    } else {
-      // Pause
-      pauseStartRef.current = Date.now();
-      setIsPaused(true);
-      await audioService.pauseAmbient();
-    }
-  }, [isPaused]);
+  }, [ambienceId, bellId, totalSeconds, repeatBell, isDevMode, handleComplete, navigation]);
 
   const handleStop = useCallback(async () => {
     if (intervalRef.current) {
@@ -221,13 +205,6 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
         </Text>
       </View>
       <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={handlePauseResume}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.actionButtonText}>{isPaused ? 'Resume' : 'Pause'}</Text>
-        </TouchableOpacity>
         <TouchableOpacity
           style={styles.actionButton}
           onPress={handleStop}
