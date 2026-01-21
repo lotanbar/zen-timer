@@ -267,6 +267,7 @@ function createAsset(track: ManifestTrack, thumbnailFilename: string): Asset {
     category: track.folder.replace(/^\d+\s*-\s*/, ''), // Remove "001 - " prefix
     audioUrl: `${CDN_BASE}/${folderEncoded}/${filenameEncoded}`,
     imageUrl: `${THUMBNAILS_BASE}/${thumbnailFilename}`,
+    duration: track.duration,
   };
 }
 
@@ -285,8 +286,18 @@ function groupTracksByCategory(tracks: ManifestTrack[]): Map<string, ManifestTra
   return grouped;
 }
 
+const TRACKS_PER_CATEGORY = 2;
+
 /**
- * Generate samples by picking one random track from each category
+ * Pick N random unique items from an array
+ */
+function pickRandomN<T>(arr: T[], n: number): T[] {
+  const shuffled = [...arr].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, Math.min(n, arr.length));
+}
+
+/**
+ * Generate samples by picking multiple random tracks from each category
  * and intelligently matching thumbnails (with deduplication)
  */
 async function generateRandomSamplesFromCDN(): Promise<Asset[]> {
@@ -303,14 +314,16 @@ async function generateRandomSamplesFromCDN(): Promise<Asset[]> {
   for (const category of sortedCategories) {
     const tracks = tracksByCategory.get(category)!;
 
-    // Pick random track from this category
-    const randomTrack = tracks[Math.floor(Math.random() * tracks.length)];
+    // Pick multiple random tracks from this category
+    const randomTracks = pickRandomN(tracks, TRACKS_PER_CATEGORY);
 
-    // Find best matching thumbnail (avoiding duplicates)
-    const matchedThumbnail = matchThumbnail(randomTrack, thumbnails, usedThumbnails);
-    usedThumbnails.add(matchedThumbnail);
+    for (const track of randomTracks) {
+      // Find best matching thumbnail (avoiding duplicates)
+      const matchedThumbnail = matchThumbnail(track, thumbnails, usedThumbnails);
+      usedThumbnails.add(matchedThumbnail);
 
-    samples.push(createAsset(randomTrack, matchedThumbnail));
+      samples.push(createAsset(track, matchedThumbnail));
+    }
   }
 
   console.log(`[SampleGenerator] Generated ${samples.length} samples from CDN`);
@@ -428,26 +441,32 @@ export async function generateWithStarred(
   const thumbnails = await fetchThumbnails();
   const tracksByCategory = groupTracksByCategory(manifest.tracks);
 
-  // Find which categories are locked (have starred assets)
-  const lockedCategories = new Set<string>();
-  const starredAssets = new Map<string, Asset>();
+  // Group starred assets by category
+  const starredByCategory = new Map<string, Asset[]>();
+  const starredTrackIds = new Set<string>();
 
   for (const asset of currentAssets) {
     if (starredIds.includes(asset.id)) {
       const category = getCategoryForAsset(asset);
       if (category) {
-        lockedCategories.add(category);
-        starredAssets.set(category, asset);
+        const existing = starredByCategory.get(category) || [];
+        existing.push(asset);
+        starredByCategory.set(category, existing);
+        // Extract track ID from asset ID (e.g., "bunny_1234" -> "1234")
+        const trackId = asset.id.replace('bunny_', '');
+        starredTrackIds.add(trackId);
       }
     }
   }
 
   // Pre-populate usedThumbnails with thumbnails from starred assets
   const usedThumbnails = new Set<string>();
-  for (const asset of starredAssets.values()) {
-    const thumb = getThumbnailFromAsset(asset);
-    if (thumb) {
-      usedThumbnails.add(thumb);
+  for (const assets of starredByCategory.values()) {
+    for (const asset of assets) {
+      const thumb = getThumbnailFromAsset(asset);
+      if (thumb) {
+        usedThumbnails.add(thumb);
+      }
     }
   }
 
@@ -456,19 +475,24 @@ export async function generateWithStarred(
   const sortedCategories = Array.from(tracksByCategory.keys()).sort();
 
   for (const category of sortedCategories) {
-    if (lockedCategories.has(category)) {
-      // Keep the starred asset
-      const starred = starredAssets.get(category);
-      if (starred) {
-        newSamples.push(starred);
-      }
-    } else {
-      // Generate new random track
+    const starredInCategory = starredByCategory.get(category) || [];
+    const slotsNeeded = TRACKS_PER_CATEGORY - starredInCategory.length;
+
+    // Add all starred assets from this category
+    newSamples.push(...starredInCategory);
+
+    // Fill remaining slots with new random tracks
+    if (slotsNeeded > 0) {
       const tracks = tracksByCategory.get(category)!;
-      const randomTrack = tracks[Math.floor(Math.random() * tracks.length)];
-      const matchedThumbnail = matchThumbnail(randomTrack, thumbnails, usedThumbnails);
-      usedThumbnails.add(matchedThumbnail);
-      newSamples.push(createAsset(randomTrack, matchedThumbnail));
+      // Filter out tracks that are already starred
+      const availableTracks = tracks.filter(t => !starredTrackIds.has(t.id));
+      const randomTracks = pickRandomN(availableTracks, slotsNeeded);
+
+      for (const track of randomTracks) {
+        const matchedThumbnail = matchThumbnail(track, thumbnails, usedThumbnails);
+        usedThumbnails.add(matchedThumbnail);
+        newSamples.push(createAsset(track, matchedThumbnail));
+      }
     }
   }
 

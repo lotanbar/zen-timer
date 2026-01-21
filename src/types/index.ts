@@ -8,6 +8,7 @@ export interface Asset {
   audioUrl: string;
   imageUrl: string;
   category?: AmbientCategory;
+  duration?: number; // Duration in seconds
   hasDiscrepancy?: boolean;
   discrepancyReason?: string;
 }

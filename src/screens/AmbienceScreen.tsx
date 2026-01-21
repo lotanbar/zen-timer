@@ -248,6 +248,7 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
             noOptionLabel="None"
             pinnedIds={starredIds}
             loadingId={loadingId}
+            isDevMode={isDevMode}
           />
         </ScrollView>
       </View>

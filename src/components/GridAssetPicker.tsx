@@ -20,12 +20,22 @@ interface GridAssetPickerProps {
   noOptionLabel?: string;
   pinnedIds?: string[];
   loadingId?: string | null;
+  isDevMode?: boolean;
 }
 
 const { width } = Dimensions.get('window');
 const NUM_COLUMNS = 3;
 const ITEM_MARGIN = 12;
 const ITEM_SIZE = (width - 40 - ITEM_MARGIN * (NUM_COLUMNS - 1)) / NUM_COLUMNS;
+
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins > 0) {
+    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+  }
+  return `${secs}s`;
+}
 
 export function GridAssetPicker({
   assets,
@@ -36,6 +46,7 @@ export function GridAssetPicker({
   noOptionLabel = 'None',
   pinnedIds = [],
   loadingId,
+  isDevMode = false,
 }: GridAssetPickerProps) {
   const data: (Asset | null)[] = showNoOption ? [null, ...assets] : assets;
 
@@ -98,6 +109,9 @@ export function GridAssetPicker({
         <Text style={[styles.label, isSelected && styles.selectedLabel]} numberOfLines={2}>
           {isNoOption ? noOptionLabel : item!.displayName}
         </Text>
+        {isDevMode && !isNoOption && item?.duration && (
+          <Text style={styles.durationLabel}>{formatDuration(item.duration)}</Text>
+        )}
       </TouchableOpacity>
     );
   };
@@ -167,6 +181,12 @@ const styles = StyleSheet.create({
   selectedLabel: {
     color: COLORS.text,
     fontWeight: FONTS.medium,
+  },
+  durationLabel: {
+    color: COLORS.text,
+    fontSize: FONTS.size.xs,
+    marginTop: 2,
+    textAlign: 'center',
   },
   pinnedIndicator: {
     position: 'absolute',

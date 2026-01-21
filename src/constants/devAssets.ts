@@ -13,6 +13,7 @@ export const DEV_SAMPLE_ASSETS: Asset[] = [
     audioUrl: 'BUNDLED:dev_wind',
     imageUrl: 'BUNDLED:dev_local_wind',
     category: 'Dev Local',
+    duration: 15,
   },
   {
     id: 'dev_local_frogs',
@@ -21,6 +22,7 @@ export const DEV_SAMPLE_ASSETS: Asset[] = [
     audioUrl: 'BUNDLED:dev_frogs',
     imageUrl: 'BUNDLED:dev_local_frogs',
     category: 'Dev Local',
+    duration: 15,
   },
   // CDN tracks (audio from CDN, thumbnails bundled)
   {
@@ -30,6 +32,7 @@ export const DEV_SAMPLE_ASSETS: Asset[] = [
     audioUrl: `${DEV_CDN_BASE}/dev_wind.mp3`,
     imageUrl: 'BUNDLED:dev_local_wind',
     category: 'Dev Cloud',
+    duration: 15,
   },
   {
     id: 'dev_cloud_frogs',
@@ -38,6 +41,7 @@ export const DEV_SAMPLE_ASSETS: Asset[] = [
     audioUrl: `${DEV_CDN_BASE}/dev_frogs.mp3`,
     imageUrl: 'BUNDLED:dev_local_frogs',
     category: 'Dev Cloud',
+    duration: 15,
   },
 ];
 
