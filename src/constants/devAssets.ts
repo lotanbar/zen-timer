@@ -1,43 +1,43 @@
 import { Asset } from '../types';
 
 const CDN_BASE = 'https://zentimer-assets.b-cdn.net';
-const DEV_IMAGES_BASE = `${CDN_BASE}/dev-samples`;
+const DEV_CDN_BASE = `${CDN_BASE}/dev-samples-DONOTREMOVE`;
 
-// Dev sample tracks for testing audio playback
+// Dev sample tracks for testing (4 total: 2 local bundled, 2 from CDN)
 export const DEV_SAMPLE_ASSETS: Asset[] = [
-  // Local bundled tracks (15 seconds, use BUNDLED: prefix)
+  // Local bundled tracks (audio + thumbnails bundled)
   {
-    id: 'dev_local_monotonous',
+    id: 'dev_local_wind',
     displayName: '15s Local Wind',
     type: 'ambient',
     audioUrl: 'BUNDLED:dev_wind',
-    imageUrl: `${DEV_IMAGES_BASE}/dev_local_wind.png`,
-    category: 'Dev Samples',
+    imageUrl: 'BUNDLED:dev_local_wind',
+    category: 'Dev Local',
   },
   {
-    id: 'dev_local_changing',
+    id: 'dev_local_frogs',
     displayName: '15s Local Frogs',
     type: 'ambient',
     audioUrl: 'BUNDLED:dev_frogs',
-    imageUrl: `${DEV_IMAGES_BASE}/dev_local_frogs.png`,
-    category: 'Dev Samples',
+    imageUrl: 'BUNDLED:dev_local_frogs',
+    category: 'Dev Local',
   },
-  // CDN tracks (same 15s clips as local, but streamed from CDN)
+  // CDN tracks (audio from CDN, thumbnails bundled)
   {
-    id: 'dev_cdn_monotonous',
+    id: 'dev_cloud_wind',
     displayName: '15s Cloud Wind',
     type: 'ambient',
-    audioUrl: `${DEV_IMAGES_BASE}/dev_wind_15s.mp3`,
-    imageUrl: `${DEV_IMAGES_BASE}/dev_cloud_wind.png`,
-    category: 'Dev Samples',
+    audioUrl: `${DEV_CDN_BASE}/dev_wind.mp3`,
+    imageUrl: 'BUNDLED:dev_local_wind',
+    category: 'Dev Cloud',
   },
   {
-    id: 'dev_cdn_changing',
+    id: 'dev_cloud_frogs',
     displayName: '15s Cloud Frogs',
     type: 'ambient',
-    audioUrl: `${DEV_IMAGES_BASE}/dev_frogs_15s.mp3`,
-    imageUrl: `${DEV_IMAGES_BASE}/dev_cloud_frogs.png`,
-    category: 'Dev Samples',
+    audioUrl: `${DEV_CDN_BASE}/dev_frogs.mp3`,
+    imageUrl: 'BUNDLED:dev_local_frogs',
+    category: 'Dev Cloud',
   },
 ];
 

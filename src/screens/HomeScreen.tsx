@@ -17,7 +17,6 @@ import { useDevModeStore } from '../store/devModeStore';
 import { COLORS, FONTS } from '../constants/theme';
 import { audioService } from '../services/audioService';
 import { getBellAssets } from '../services/assetDiscoveryService';
-import { SAMPLE_ASSETS } from '../constants/sampleAssets';
 import { DEV_SAMPLE_ASSETS, DEV_SAMPLE_IDS } from '../constants/devAssets';
 import { RootStackParamList, Asset } from '../types';
 import * as sampleGenerator from '../services/sampleGeneratorService';
