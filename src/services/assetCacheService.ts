@@ -1,7 +1,7 @@
-import * as LegacyFileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Asset } from '../types';
 
-const CACHE_DIR = `${LegacyFileSystem.cacheDirectory}zen-timer-assets/`;
+const CACHE_DIR = `${FileSystem.cacheDirectory}zen-timer-assets/`;
 const IMAGES_DIR = `${CACHE_DIR}images/`;
 const AUDIO_DIR = `${CACHE_DIR}audio/`;
 
@@ -44,9 +44,9 @@ class AssetCacheService {
 
   private async ensureDirectoryExists(dir: string): Promise<void> {
     try {
-      const info = await LegacyFileSystem.getInfoAsync(dir);
+      const info = await FileSystem.getInfoAsync(dir);
       if (!info.exists) {
-        await LegacyFileSystem.makeDirectoryAsync(dir, { intermediates: true });
+        await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
       }
     } catch (error) {
       console.error(`Failed to create directory ${dir}:`, error);
@@ -55,18 +55,18 @@ class AssetCacheService {
 
   private async loadExistingCache(): Promise<void> {
     try {
-      const imageInfo = await LegacyFileSystem.getInfoAsync(IMAGES_DIR);
+      const imageInfo = await FileSystem.getInfoAsync(IMAGES_DIR);
       if (imageInfo.exists) {
-        const imageFiles = await LegacyFileSystem.readDirectoryAsync(IMAGES_DIR);
+        const imageFiles = await FileSystem.readDirectoryAsync(IMAGES_DIR);
         for (const file of imageFiles) {
           const id = file.replace(/\.[^.]+$/, '');
           this.imageCache.set(id, `${IMAGES_DIR}${file}`);
         }
       }
 
-      const audioInfo = await LegacyFileSystem.getInfoAsync(AUDIO_DIR);
+      const audioInfo = await FileSystem.getInfoAsync(AUDIO_DIR);
       if (audioInfo.exists) {
-        const audioFiles = await LegacyFileSystem.readDirectoryAsync(AUDIO_DIR);
+        const audioFiles = await FileSystem.readDirectoryAsync(AUDIO_DIR);
         for (const file of audioFiles) {
           const id = file.replace(/\.[^.]+$/, '');
           this.audioCache.set(id, `${AUDIO_DIR}${file}`);
@@ -88,7 +88,7 @@ class AssetCacheService {
     if (this.imageCache.has(asset.id)) {
       const cachedPath = this.imageCache.get(asset.id)!;
       try {
-        const info = await LegacyFileSystem.getInfoAsync(cachedPath);
+        const info = await FileSystem.getInfoAsync(cachedPath);
         if (info.exists) {
           return cachedPath;
         }
@@ -103,7 +103,7 @@ class AssetCacheService {
     const localPath = `${IMAGES_DIR}${asset.id}.${ext}`;
 
     try {
-      const downloadResult = await LegacyFileSystem.downloadAsync(
+      const downloadResult = await FileSystem.downloadAsync(
         asset.imageUrl,
         localPath
       );
@@ -125,7 +125,7 @@ class AssetCacheService {
     if (this.audioCache.has(asset.id)) {
       const cachedPath = this.audioCache.get(asset.id)!;
       try {
-        const info = await LegacyFileSystem.getInfoAsync(cachedPath);
+        const info = await FileSystem.getInfoAsync(cachedPath);
         if (info.exists) {
           return cachedPath;
         }
@@ -138,7 +138,7 @@ class AssetCacheService {
     const localPath = `${AUDIO_DIR}${asset.id}.mp3`;
 
     try {
-      const downloadResult = await LegacyFileSystem.downloadAsync(
+      const downloadResult = await FileSystem.downloadAsync(
         asset.audioUrl,
         localPath
       );
@@ -223,9 +223,9 @@ class AssetCacheService {
 
   async clearCache(): Promise<void> {
     try {
-      const info = await LegacyFileSystem.getInfoAsync(CACHE_DIR);
+      const info = await FileSystem.getInfoAsync(CACHE_DIR);
       if (info.exists) {
-        await LegacyFileSystem.deleteAsync(CACHE_DIR, { idempotent: true });
+        await FileSystem.deleteAsync(CACHE_DIR, { idempotent: true });
       }
       this.imageCache.clear();
       this.audioCache.clear();
@@ -234,11 +234,6 @@ class AssetCacheService {
     } catch (error) {
       console.error('Failed to clear cache:', error);
     }
-  }
-
-  async getCacheSize(): Promise<number> {
-    // Size calculation requires iterating all files, return 0 for simplicity
-    return 0;
   }
 }
 
