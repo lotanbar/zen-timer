@@ -184,6 +184,13 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
         fadeOutScheduled = true
 
         val fadeOutDelay = trackDurationMs - FADE_DURATION_MS - 500
+
+        // Guard against negative delay (tracks shorter than fade duration + buffer)
+        if (fadeOutDelay <= 0) {
+            Log.d(TAG, "Track too short for fade out scheduling (${trackDurationMs}ms), skipping")
+            return
+        }
+
         Log.d(TAG, "Scheduling fade out in ${fadeOutDelay}ms")
 
         handler.postDelayed({
@@ -355,6 +362,7 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
             // Stop any currently playing bell
             val stopIntent = Intent(reactApplicationContext, BellAlarmReceiver::class.java).apply {
                 action = BellAlarmReceiver.ACTION_STOP_BELL
+                setPackage(reactApplicationContext.packageName)
             }
             reactApplicationContext.sendBroadcast(stopIntent)
 
@@ -578,8 +586,9 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
                 PowerManager.PARTIAL_WAKE_LOCK,
                 "ZenTimer:AudioPlayback"
             )
-            wakeLock?.acquire(10 * 60 * 60 * 1000L)
-            Log.d(TAG, "Wake lock acquired")
+            // 4 hours max timeout - reasonable for longest meditation sessions
+            wakeLock?.acquire(4 * 60 * 60 * 1000L)
+            Log.d(TAG, "Wake lock acquired (4h timeout)")
 
             val wifiManager = reactApplicationContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             wifiLock = wifiManager.createWifiLock(
@@ -587,7 +596,7 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
                 "ZenTimer:AudioStreaming"
             )
             wifiLock?.acquire()
-            Log.d(TAG, "WiFi lock acquired")
+            Log.d(TAG, "WiFi lock acquired (4h timeout)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to acquire locks: ${e.message}")
         }

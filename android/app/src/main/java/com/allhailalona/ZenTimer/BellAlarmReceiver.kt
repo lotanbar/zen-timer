@@ -134,6 +134,7 @@ class BellAlarmReceiver : BroadcastReceiver() {
                     // If this is the final bell, send callback to JS
                     if (isFinal) {
                         val callbackIntent = Intent(ACTION_TIMER_COMPLETE)
+                        callbackIntent.setPackage(context.packageName)
                         context.sendBroadcast(callbackIntent)
                     }
                 }
