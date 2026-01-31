@@ -52,8 +52,11 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
   const { addSession } = useSessionStore();
   const totalSeconds = getTotalSeconds(duration);
   const [remaining, setRemaining] = useState(totalSeconds);
+  const [isPaused, setIsPaused] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(Date.now());
+  const pausedAtRef = useRef<number | null>(null);
+  const totalPausedTimeRef = useRef<number>(0);
   const isCompletedRef = useRef(false);
   const isMountedRef = useRef(true);
 
@@ -81,6 +84,65 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
     await audioService.stopAll();
     navigation.goBack();
   }, [totalSeconds, ambienceId, bellId, addSession, navigation]);
+
+  const handlePause = useCallback(async () => {
+    if (isPaused || isCompletedRef.current) return;
+
+    setIsPaused(true);
+    pausedAtRef.current = Date.now();
+
+    // Pause the countdown interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    await audioService.pause();
+    console.log('[Timer] Meditation paused');
+  }, [isPaused]);
+
+  const handleResume = useCallback(async () => {
+    if (!isPaused || isCompletedRef.current) return;
+
+    // Track total paused time
+    if (pausedAtRef.current) {
+      totalPausedTimeRef.current += Date.now() - pausedAtRef.current;
+      pausedAtRef.current = null;
+    }
+
+    setIsPaused(false);
+
+    // Restart countdown interval
+    intervalRef.current = setInterval(() => {
+      if (!isMountedRef.current || isCompletedRef.current) return;
+
+      const elapsedMs = Date.now() - startTimeRef.current - totalPausedTimeRef.current;
+      const elapsedSeconds = Math.floor(elapsedMs / 1000);
+      const newRemaining = Math.max(0, totalSeconds - elapsedSeconds);
+
+      setRemaining(newRemaining);
+    }, 250);
+
+    await audioService.resume();
+    console.log('[Timer] Meditation resumed');
+  }, [isPaused, totalSeconds]);
+
+  // Listen for app state changes to pause when backgrounded
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (isCompletedRef.current) return;
+
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // App went to background - pause
+        if (!isPaused) {
+          handlePause();
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
+  }, [isPaused, handlePause]);
 
   // Listen for native timer completion event (fires even when screen is off)
   useEffect(() => {
@@ -182,12 +244,13 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
 
     init();
     startTimeRef.current = Date.now();
+    totalPausedTimeRef.current = 0;
 
-    // Simple UI-only countdown
+    // Simple UI-only countdown (accounts for paused time)
     intervalRef.current = setInterval(() => {
       if (!isMountedRef.current || isCompletedRef.current) return;
 
-      const elapsedMs = Date.now() - startTimeRef.current;
+      const elapsedMs = Date.now() - startTimeRef.current - totalPausedTimeRef.current;
       const elapsedSeconds = Math.floor(elapsedMs / 1000);
       const newRemaining = Math.max(0, totalSeconds - elapsedSeconds);
 
@@ -229,14 +292,22 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
     <SafeAreaView style={styles.container}>
       <View style={styles.timerContainer}>
         <Text
-          style={[styles.timer, { fontSize: screenWidth * 0.4 }]}
+          style={[styles.timer, { fontSize: screenWidth * 0.4 }, isPaused && styles.timerPaused]}
           numberOfLines={1}
           adjustsFontSizeToFit
         >
           {formatTime(remaining)}
         </Text>
+        {isPaused && <Text style={styles.pausedLabel}>Paused</Text>}
       </View>
       <View style={styles.footer}>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={isPaused ? handleResume : handlePause}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.actionButtonText}>{isPaused ? 'Resume' : 'Pause'}</Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.actionButton}
           onPress={handleStop}
@@ -264,6 +335,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
     letterSpacing: -4,
+  },
+  timerPaused: {
+    opacity: 0.5,
+  },
+  pausedLabel: {
+    color: COLORS.textSecondary,
+    fontSize: FONTS.size.large,
+    marginTop: 8,
   },
   footer: {
     flexDirection: 'row',

@@ -55,6 +55,34 @@ class AudioService {
   }
 
   /**
+   * Pause meditation audio
+   */
+  async pause(): Promise<void> {
+    if (Platform.OS !== 'android' || !NativeAudioModule) return;
+
+    try {
+      await NativeAudioModule.pause();
+      console.log('[AudioService] Audio paused');
+    } catch (error) {
+      console.error('[AudioService] Failed to pause audio:', error);
+    }
+  }
+
+  /**
+   * Resume meditation audio
+   */
+  async resume(): Promise<void> {
+    if (Platform.OS !== 'android' || !NativeAudioModule) return;
+
+    try {
+      await NativeAudioModule.resume();
+      console.log('[AudioService] Audio resumed');
+    } catch (error) {
+      console.error('[AudioService] Failed to resume audio:', error);
+    }
+  }
+
+  /**
    * Stop all audio - ambient and bells
    */
   async stopAll(): Promise<void> {
