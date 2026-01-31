@@ -132,7 +132,18 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     loadAssets();
   }, [isDevMode]);
 
-  // Check for partial downloads on app launch
+  // Show verification modal on app launch if not authenticated
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      // Small delay to let the app render first
+      const timer = setTimeout(() => {
+        setShowVerificationModal(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading, isAuthenticated]);
+
+  // Check for partial downloads on app launch (only if authenticated)
   useEffect(() => {
     async function checkPartialDownloads() {
       if (!isAuthenticated) return;

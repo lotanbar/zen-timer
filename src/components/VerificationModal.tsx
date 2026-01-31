@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Modal,
   View,
@@ -11,27 +11,77 @@ import {
   Platform,
 } from 'react-native';
 import { useAuthStore } from '../store/authStore';
+import { COLORS, FONTS } from '../constants/theme';
 
 interface VerificationModalProps {
   visible: boolean;
   onClose?: () => void;
 }
 
+const CODE_LENGTH = 6;
+
 export const VerificationModal: React.FC<VerificationModalProps> = ({
   visible,
   onClose,
 }) => {
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState(['', '', '', '', '', '']);
+  const inputRefs = useRef<(TextInput | null)[]>([]);
   const { verifyCode, isLoading, error } = useAuthStore();
 
-  const handleVerify = async () => {
-    if (!code.trim()) return;
+  const handleChangeText = (text: string, index: number) => {
+    // Only allow numbers and letters
+    const sanitized = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-    const success = await verifyCode(code.trim());
+    if (sanitized.length === 0) {
+      // Handle backspace
+      const newCode = [...code];
+      newCode[index] = '';
+      setCode(newCode);
+
+      // Move to previous input
+      if (index > 0) {
+        inputRefs.current[index - 1]?.focus();
+      }
+      return;
+    }
+
+    // Handle paste of full code
+    if (sanitized.length === CODE_LENGTH) {
+      const newCode = sanitized.split('').slice(0, CODE_LENGTH);
+      setCode(newCode);
+      inputRefs.current[CODE_LENGTH - 1]?.focus();
+      return;
+    }
+
+    // Handle single character
+    const newCode = [...code];
+    newCode[index] = sanitized[0] || '';
+    setCode(newCode);
+
+    // Auto-focus next input
+    if (sanitized && index < CODE_LENGTH - 1) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyPress = (key: string, index: number) => {
+    if (key === 'Backspace' && !code[index] && index > 0) {
+      // Move to previous input on backspace if current is empty
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleVerify = async () => {
+    const fullCode = code.join('');
+    if (fullCode.length !== CODE_LENGTH) return;
+
+    const success = await verifyCode(fullCode);
     if (success && onClose) {
       onClose();
     }
   };
+
+  const isCodeComplete = code.every(digit => digit !== '');
 
   return (
     <Modal
@@ -48,44 +98,53 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({
           <View style={styles.modal}>
             <Text style={styles.title}>Authentication Required</Text>
             <Text style={styles.subtitle}>
-              Enter your verification code to access meditation sessions
+              You need to be authenticated to stream meditation data
             </Text>
+            <Text style={styles.codeLabel}>Enter your 6-digit code:</Text>
 
-            <TextInput
-              style={styles.input}
-              value={code}
-              onChangeText={setCode}
-              placeholder="Enter verification code"
-              placeholderTextColor="#666"
-              autoCapitalize="characters"
-              autoCorrect={false}
-              editable={!isLoading}
-              onSubmitEditing={handleVerify}
-            />
+            <View style={styles.codeContainer}>
+              {code.map((digit, index) => (
+                <TextInput
+                  key={index}
+                  ref={ref => (inputRefs.current[index] = ref)}
+                  style={[
+                    styles.codeInput,
+                    digit && styles.codeInputFilled,
+                    error && styles.codeInputError,
+                  ]}
+                  value={digit}
+                  onChangeText={text => handleChangeText(text, index)}
+                  onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, index)}
+                  keyboardType="default"
+                  maxLength={1}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  editable={!isLoading}
+                  selectTextOnFocus
+                />
+              ))}
+            </View>
 
             {error && <Text style={styles.error}>{error}</Text>}
 
             <TouchableOpacity
-              style={[styles.button, isLoading && styles.buttonDisabled]}
+              style={[
+                styles.button,
+                (!isCodeComplete || isLoading) && styles.buttonDisabled,
+              ]}
               onPress={handleVerify}
-              disabled={isLoading || !code.trim()}
+              disabled={!isCodeComplete || isLoading}
             >
               {isLoading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.buttonText}>Verify</Text>
+                <Text style={styles.buttonText}>Verify Code</Text>
               )}
             </TouchableOpacity>
 
-            {onClose && (
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={onClose}
-                disabled={isLoading}
-              >
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-            )}
+            <Text style={styles.helpText}>
+              Don't have a code? Contact the app administrator.
+            </Text>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -96,7 +155,7 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -105,45 +164,68 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   modal: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: COLORS.background,
     borderRadius: 16,
-    padding: 24,
+    padding: 32,
     width: '100%',
-    maxWidth: 400,
+    maxWidth: 420,
     alignSelf: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 8,
+    fontSize: FONTS.size.xlarge,
+    fontWeight: FONTS.bold,
+    color: COLORS.text,
+    marginBottom: 12,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 14,
-    color: '#999',
-    marginBottom: 24,
+    fontSize: FONTS.size.medium,
+    color: COLORS.textSecondary,
+    marginBottom: 8,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
   },
-  input: {
-    backgroundColor: '#2a2a2a',
+  codeLabel: {
+    fontSize: FONTS.size.small,
+    color: COLORS.textSecondary,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  codeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 24,
+  },
+  codeInput: {
+    width: 48,
+    height: 56,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 8,
-    padding: 16,
-    fontSize: 16,
-    color: '#fff',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#333',
+    borderWidth: 2,
+    borderColor: COLORS.border,
+    fontSize: 24,
+    fontWeight: FONTS.bold,
+    color: COLORS.text,
+    textAlign: 'center',
+  },
+  codeInputFilled: {
+    borderColor: COLORS.text,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  codeInputError: {
+    borderColor: '#ff4444',
   },
   error: {
     color: '#ff4444',
-    fontSize: 14,
-    marginBottom: 16,
+    fontSize: FONTS.size.small,
+    marginBottom: 20,
     textAlign: 'center',
   },
   button: {
-    backgroundColor: '#4a9eff',
+    backgroundColor: COLORS.text,
     borderRadius: 8,
     padding: 16,
     alignItems: 'center',
@@ -153,16 +235,15 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    color: COLORS.background,
+    fontSize: FONTS.size.medium,
+    fontWeight: FONTS.semibold,
   },
-  cancelButton: {
-    padding: 12,
-    alignItems: 'center',
-  },
-  cancelText: {
-    color: '#999',
-    fontSize: 14,
+  helpText: {
+    color: COLORS.textSecondary,
+    fontSize: FONTS.size.small,
+    textAlign: 'center',
+    marginTop: 16,
+    fontStyle: 'italic',
   },
 });
