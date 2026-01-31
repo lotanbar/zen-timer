@@ -142,6 +142,16 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({
               )}
             </TouchableOpacity>
 
+            {onClose && (
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={onClose}
+                disabled={isLoading}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            )}
+
             <Text style={styles.helpText}>
               Don't have a code? Contact the app administrator.
             </Text>
@@ -236,6 +246,19 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: COLORS.background,
+    fontSize: FONTS.size.medium,
+    fontWeight: FONTS.semibold,
+  },
+  cancelButton: {
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  cancelButtonText: {
+    color: COLORS.textSecondary,
     fontSize: FONTS.size.medium,
     fontWeight: FONTS.semibold,
   },

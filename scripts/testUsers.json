@@ -1,0 +1,16 @@
+{
+  "users": {
+    "ADMIN1": {
+      "name": "Admin",
+      "quotaLimitMB": 102400,
+      "usedQuotaMB": 0,
+      "createdAt": 1738332000000
+    },
+    "UNCLE1": {
+      "name": "Uncle",
+      "quotaLimitMB": 512000,
+      "usedQuotaMB": 0,
+      "createdAt": 1738332000000
+    }
+  }
+}

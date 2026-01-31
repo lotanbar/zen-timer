@@ -438,6 +438,20 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
       </View>
 
       <View style={styles.footer}>
+        {!isAuthenticated && (
+          <View style={styles.authBanner}>
+            <Text style={styles.authBannerText}>
+              You need to{' '}
+              <Text
+                style={styles.authBannerLink}
+                onPress={() => setShowVerificationModal(true)}
+              >
+                authenticate
+              </Text>
+              {' '}to stream meditation data
+            </Text>
+          </View>
+        )}
         <TouchableOpacity
           style={[styles.startButton, !canStart && styles.startButtonDisabled]}
           onPress={handleStart}
@@ -522,6 +536,27 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.border,
+  },
+  authBanner: {
+    backgroundColor: 'rgba(255, 165, 0, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 165, 0, 0.3)',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    width: '100%',
+  },
+  authBannerText: {
+    color: COLORS.textSecondary,
+    fontSize: FONTS.size.small,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  authBannerLink: {
+    color: '#FFA500',
+    fontWeight: FONTS.semibold,
+    textDecorationLine: 'underline',
   },
   startButton: {
     backgroundColor: COLORS.text,
