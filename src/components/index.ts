@@ -11,3 +11,5 @@ export { SearchBar } from './SearchBar';
 export { StepButton } from './StepButton';
 export type { StepButtonRef } from './StepButton';
 export { Toast } from './Toast';
+export { DownloadProgressModal } from './DownloadProgressModal';
+export { PartialDownloadModal } from './PartialDownloadModal';
