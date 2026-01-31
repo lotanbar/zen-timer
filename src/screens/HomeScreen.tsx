@@ -7,15 +7,19 @@ import {
   ActivityIndicator,
   Dimensions,
   Image,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import { StepButton, StepButtonRef, Toast } from '../components';
+import { StepButton, StepButtonRef, Toast, DownloadProgressModal, PartialDownloadModal } from '../components';
+import { VerificationModal } from '../components/VerificationModal';
 import { usePreferencesStore, getTotalSeconds } from '../store/preferencesStore';
 import { useDevModeStore } from '../store/devModeStore';
+import { useAuthStore } from '../store/authStore';
 import { COLORS, FONTS } from '../constants/theme';
 import { audioService } from '../services/audioService';
+import { assetCacheService, type PartialDownload } from '../services/assetCacheService';
 import { getBellAssets } from '../services/assetDiscoveryService';
 import { DEV_SAMPLE_ASSETS, DEV_SAMPLE_IDS } from '../constants/devAssets';
 import { RootStackParamList, Asset } from '../types';
@@ -49,6 +53,20 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [bellAssets, setBellAssets] = useState<Asset[]>([]);
   const [ambienceAssets, setAmbienceAssets] = useState<Asset[]>([]);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+
+  // Partial download state
+  const [showPartialModal, setShowPartialModal] = useState(false);
+  const [partialDownloads, setPartialDownloads] = useState<PartialDownload[]>([]);
+
+  // Download progress state
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState({
+    downloadedMB: 0,
+    totalMB: 0,
+    percent: 0,
+  });
+  const [downloadingAssetName, setDownloadingAssetName] = useState('');
 
   const durationRef = useRef<StepButtonRef>(null);
   const ambienceRef = useRef<StepButtonRef>(null);
@@ -61,6 +79,15 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   const [toastMessage, setToastMessage] = useState('');
   const [showToast, setShowToast] = useState(false);
   const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auth state
+  const {
+    isAuthenticated,
+    hasQuotaRemaining,
+    getRemainingQuotaMB,
+    refreshUserData,
+    user,
+  } = useAuthStore();
 
   const {
     duration,
@@ -105,6 +132,26 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     loadAssets();
   }, [isDevMode]);
 
+  // Check for partial downloads on app launch
+  useEffect(() => {
+    async function checkPartialDownloads() {
+      if (!isAuthenticated) return;
+
+      try {
+        const partials = await assetCacheService.detectPartialDownloads();
+        if (partials.length > 0) {
+          console.log(`Found ${partials.length} partial download(s)`);
+          setPartialDownloads(partials);
+          setShowPartialModal(true);
+        }
+      } catch (error) {
+        console.error('Failed to check for partial downloads:', error);
+      }
+    }
+
+    checkPartialDownloads();
+  }, [isAuthenticated]);
+
   // Reload ambience samples when screen is focused (in case user refreshed in AmbienceScreen)
   useFocusEffect(
     useCallback(() => {
@@ -114,7 +161,12 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
         audioService.setAmbientAssets(loadedAmbienceSamples);
       }
       reloadAmbienceSamples();
-    }, [])
+
+      // Refresh user quota data from Firebase
+      if (isAuthenticated) {
+        refreshUserData();
+      }
+    }, [isAuthenticated, refreshUserData])
   );
 
   // Three independent pulse timers so multiple buttons can light up at once
@@ -228,7 +280,81 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     navigation.navigate(screen);
   };
 
+  const handleContinuePartialDownloads = () => {
+    setShowPartialModal(false);
+    // Partial downloads will resume automatically when user starts meditation
+  };
+
+  const handleDeletePartialDownloads = async () => {
+    setShowPartialModal(false);
+
+    for (const partial of partialDownloads) {
+      await assetCacheService.deletePartialDownload(partial.assetId);
+    }
+
+    setPartialDownloads([]);
+    setToastMessage('Partial downloads deleted');
+    setShowToast(true);
+  };
+
   const handleStart = async () => {
+    // Check authentication
+    if (!isAuthenticated) {
+      setShowVerificationModal(true);
+      return;
+    }
+
+    // Refresh quota data before checking
+    await refreshUserData();
+
+    // Check quota
+    if (!hasQuotaRemaining()) {
+      const remainingMB = getRemainingQuotaMB();
+      Alert.alert(
+        'Quota Exceeded',
+        `You've used all your bandwidth quota. ${remainingMB < 0 ? `You're ${Math.abs(remainingMB).toFixed(1)}MB over your limit.` : 'Please contact the app administrator to increase your quota.'}`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    // Check if ambience needs to be downloaded
+    const selectedAmbience = allAmbienceAssets.find(a => a.id === ambienceId);
+    if (selectedAmbience) {
+      const cachedPath = assetCacheService.getCachedAudioPath(selectedAmbience.id);
+
+      if (!cachedPath) {
+        // Need to download (or resume) the ambience file
+        setIsDownloading(true);
+        setDownloadingAssetName(selectedAmbience.displayName || selectedAmbience.id);
+        setDownloadProgress({ downloadedMB: 0, totalMB: 0, percent: 0 });
+
+        try {
+          await assetCacheService.cacheAudio(selectedAmbience, (progress) => {
+            const downloadedMB = progress.totalBytesWritten / (1024 * 1024);
+            const totalMB = progress.totalBytesExpectedToWrite / (1024 * 1024);
+            const percent = (progress.totalBytesWritten / progress.totalBytesExpectedToWrite) * 100;
+
+            setDownloadProgress({ downloadedMB, totalMB, percent });
+          });
+
+          console.log('Download complete, proceeding to meditation');
+        } catch (error) {
+          const currentProgress = downloadProgress;
+          Alert.alert(
+            'Download Interrupted',
+            `Download was interrupted. You've used ${currentProgress.downloadedMB.toFixed(1)}MB of quota. The download can be resumed later.`,
+            [{ text: 'OK' }]
+          );
+          setIsDownloading(false);
+          return;
+        }
+
+        setIsDownloading(false);
+      }
+    }
+
+    // Start meditation
     await audioService.stopPreview();
     navigation.navigate('Timer');
   };
@@ -256,6 +382,13 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
             resizeMode="contain"
           />
         </TouchableOpacity>
+        {isAuthenticated && user && (
+          <View style={styles.quotaContainer}>
+            <Text style={styles.quotaText}>
+              {user.name} • {getRemainingQuotaMB().toFixed(0)}MB / {user.quotaLimitMB}MB
+            </Text>
+          </View>
+        )}
       </View>
       <View style={styles.buttonsContainer}>
         <StepButton
@@ -296,6 +429,26 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
         visible={showToast}
         onHide={() => setShowToast(false)}
       />
+
+      <VerificationModal
+        visible={showVerificationModal}
+        onClose={() => setShowVerificationModal(false)}
+      />
+
+      <PartialDownloadModal
+        visible={showPartialModal}
+        partialDownloads={partialDownloads}
+        onContinue={handleContinuePartialDownloads}
+        onDelete={handleDeletePartialDownloads}
+      />
+
+      <DownloadProgressModal
+        visible={isDownloading}
+        assetName={downloadingAssetName}
+        downloadedMB={downloadProgress.downloadedMB}
+        totalMB={downloadProgress.totalMB}
+        percent={downloadProgress.percent}
+      />
     </SafeAreaView>
   );
 }
@@ -318,6 +471,18 @@ const styles = StyleSheet.create({
   logo: {
     width: 80,
     height: 80,
+  },
+  quotaContainer: {
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+  },
+  quotaText: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    fontWeight: '500',
   },
   buttonsContainer: {
     flex: 1,
