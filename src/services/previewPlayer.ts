@@ -1,6 +1,8 @@
 import { Audio } from 'expo-av';
 import { Asset } from '../types';
 import { assetCacheService } from './assetCacheService';
+import { getSignedUrl } from './signedUrlService';
+import { useAuthStore } from '../store/authStore';
 
 const FADE_DURATION = 400;
 const FADE_STEPS = 20;
@@ -27,7 +29,7 @@ export class PreviewPlayer {
     this.bellAssets = assets;
   }
 
-  private getAudioSource(assetId: string, type: 'ambient' | 'bell'): { uri: string } | number | null {
+  private async getAudioSource(assetId: string, type: 'ambient' | 'bell'): Promise<{ uri: string } | number | null> {
     const assets = type === 'ambient' ? this.ambientAssets : this.bellAssets;
     const asset = assets.find((a) => a.id === assetId);
     if (!asset) return null;
@@ -41,9 +43,26 @@ export class PreviewPlayer {
       return null;
     }
 
-    // Try cached version first, fallback to remote
-    const uri = assetCacheService.getAudioUri(asset);
-    return uri ? { uri } : null;
+    // Check if cached locally
+    const cachedPath = assetCacheService.getCachedAudioPath(assetId);
+    if (cachedPath) {
+      return { uri: cachedPath };
+    }
+
+    // Not cached - need to get signed URL for streaming
+    const { user } = useAuthStore.getState();
+    if (!user) {
+      console.warn('[Preview] No user authenticated, cannot get signed URL');
+      return null;
+    }
+
+    try {
+      const signedUrl = await getSignedUrl(assetId, 'audio', user.verificationCode);
+      return { uri: signedUrl };
+    } catch (error) {
+      console.error('[Preview] Failed to get signed URL:', error);
+      return null;
+    }
   }
 
   async previewAmbient(assetId: string, onLoaded?: () => void): Promise<void> {
@@ -58,7 +77,7 @@ export class PreviewPlayer {
       await this.stop();
       const requestId = ++this.previewRequestId;
 
-      const source = this.getAudioSource(assetId, 'ambient');
+      const source = await this.getAudioSource(assetId, 'ambient');
       if (!source) {
         onLoaded?.();
         return;
@@ -108,7 +127,7 @@ export class PreviewPlayer {
       await this.stop();
       const requestId = ++this.previewRequestId;
 
-      const source = this.getAudioSource(assetId, 'bell');
+      const source = await this.getAudioSource(assetId, 'bell');
       if (!source) {
         onLoaded?.();
         return;

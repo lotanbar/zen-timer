@@ -18,6 +18,7 @@ import { usePreferencesStore, getTotalSeconds } from '../store/preferencesStore'
 import { useDevModeStore } from '../store/devModeStore';
 import { useAuthStore } from '../store/authStore';
 import { COLORS, FONTS } from '../constants/theme';
+import Svg, { Path } from 'react-native-svg';
 import { audioService } from '../services/audioService';
 import { assetCacheService, type PartialDownload } from '../services/assetCacheService';
 import { getBellAssets } from '../services/assetDiscoveryService';
@@ -28,6 +29,20 @@ import { syncService } from '../services/syncService';
 
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function LogoutIcon({ size = 16, color = '#ff4444' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
 }
 
 type HomeScreenProps = {
@@ -88,6 +103,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     getRemainingQuotaMB,
     refreshUserData,
     user,
+    logout,
   } = useAuthStore();
 
   const {
@@ -289,6 +305,25 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     }, 2000);
   };
 
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            await logout();
+            setToastMessage('Logged out successfully');
+            setShowToast(true);
+          },
+        },
+      ]
+    );
+  };
+
   // Include dev samples in lookup when dev mode is on
   const allAmbienceAssets = isDevMode ? [...DEV_SAMPLE_ASSETS, ...ambienceAssets] : ambienceAssets;
   const selectedAmbience = allAmbienceAssets.find(a => a.id === ambienceId);
@@ -407,12 +442,21 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
           />
         </TouchableOpacity>
         {isAuthenticated && user && (
-          <View style={styles.quotaContainer}>
-            <Text style={styles.quotaText}>
-              {user.name} • {user.quotaLimitMB === -1
-                ? 'Unlimited'
-                : `${getRemainingQuotaMB().toFixed(0)}MB / ${user.quotaLimitMB}MB`}
-            </Text>
+          <View style={styles.quotaRow}>
+            <View style={styles.quotaContainer}>
+              <Text style={styles.quotaText}>
+                {user.name} • {user.quotaLimitMB === -1
+                  ? 'Unlimited'
+                  : `${getRemainingQuotaMB().toFixed(0)}MB / ${user.quotaLimitMB}MB`}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.logoutButton}
+              onPress={handleLogout}
+              activeOpacity={0.7}
+            >
+              <LogoutIcon size={16} color="#ff4444" />
+            </TouchableOpacity>
           </View>
         )}
       </View>
@@ -512,8 +556,13 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
   },
-  quotaContainer: {
+  quotaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 8,
+    gap: 8,
+  },
+  quotaContainer: {
     paddingHorizontal: 12,
     paddingVertical: 4,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -523,6 +572,16 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontSize: 12,
     fontWeight: '500',
+  },
+  logoutButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 68, 68, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 68, 68, 0.3)',
   },
   buttonsContainer: {
     flex: 1,
