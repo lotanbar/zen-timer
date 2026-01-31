@@ -231,7 +231,10 @@ class AssetCacheService {
 
     let signedUrl: string;
     try {
-      signedUrl = await getSignedUrl(asset.id, 'image', user.verificationCode);
+      // Extract the actual path from the asset's imageUrl
+      const url = new URL(asset.imageUrl);
+      const filePath = url.pathname;
+      signedUrl = await getSignedUrl(asset.id, 'image', user.verificationCode, filePath);
     } catch (error) {
       console.error(`Failed to get signed URL for ${asset.id}:`, error);
       return null;
