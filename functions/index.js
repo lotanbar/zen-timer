@@ -63,7 +63,8 @@ exports.getSignedUrl = functions.https.onCall(async (data, context) => {
     const quotaLimitMB = user.quotaLimitMB || 1000;
     const quotaUsedMB = user.quotaUsedMB || 0;
 
-    if (quotaUsedMB >= quotaLimitMB) {
+    // -1 means unlimited quota
+    if (quotaLimitMB !== -1 && quotaUsedMB >= quotaLimitMB) {
       throw new functions.https.HttpsError(
         'permission-denied',
         'Quota exceeded. Cannot download more files.'
@@ -144,7 +145,8 @@ exports.getBatchSignedUrls = functions.https.onCall(async (data, context) => {
     const quotaLimitMB = user.quotaLimitMB || 1000;
     const quotaUsedMB = user.quotaUsedMB || 0;
 
-    if (quotaUsedMB >= quotaLimitMB) {
+    // -1 means unlimited quota
+    if (quotaLimitMB !== -1 && quotaUsedMB >= quotaLimitMB) {
       throw new functions.https.HttpsError(
         'permission-denied',
         'Quota exceeded. Cannot download more files.'
