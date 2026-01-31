@@ -9,7 +9,7 @@
           ".validate": "newData.isString()"
         },
         "quotaLimitMB": {
-          ".validate": "newData.isNumber() && newData.val() >= 0"
+          ".validate": "newData.isNumber() && (newData.val() >= 0 || newData.val() === -1)"
         },
         "quotaUsedMB": {
           ".validate": "newData.isNumber() && newData.val() >= 0"

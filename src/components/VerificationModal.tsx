@@ -26,6 +26,7 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({
 }) => {
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const inputRefs = useRef<(TextInput | null)[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const { verifyCode, isLoading, error } = useAuthStore();
 
   const handleChangeText = (text: string, index: number) => {
@@ -75,8 +76,20 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({
     const fullCode = code.join('');
     if (fullCode.length !== CODE_LENGTH) return;
 
+    abortControllerRef.current = new AbortController();
     const success = await verifyCode(fullCode);
     if (success && onClose) {
+      onClose();
+    }
+    abortControllerRef.current = null;
+  };
+
+  const handleCancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (onClose) {
       onClose();
     }
   };
@@ -97,9 +110,6 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({
         <View style={styles.container}>
           <View style={styles.modal}>
             <Text style={styles.title}>Authentication Required</Text>
-            <Text style={styles.subtitle}>
-              You need to be authenticated to stream meditation data
-            </Text>
             <Text style={styles.codeLabel}>Enter your 6-digit code:</Text>
 
             <View style={styles.codeContainer}>
@@ -145,7 +155,7 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({
             {onClose && (
               <TouchableOpacity
                 style={styles.cancelButton}
-                onPress={onClose}
+                onPress={handleCancel}
                 disabled={isLoading}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -165,6 +175,8 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
+    width: '100%',
+    height: '100%',
     backgroundColor: 'rgba(0, 0, 0, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -187,15 +199,8 @@ const styles = StyleSheet.create({
     fontSize: FONTS.size.xlarge,
     fontWeight: FONTS.bold,
     color: COLORS.text,
-    marginBottom: 12,
+    marginBottom: 24,
     textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: FONTS.size.medium,
-    color: COLORS.textSecondary,
-    marginBottom: 8,
-    textAlign: 'center',
-    lineHeight: 22,
   },
   codeLabel: {
     fontSize: FONTS.size.small,
