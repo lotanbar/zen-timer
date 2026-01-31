@@ -2,7 +2,7 @@
   "users": {
     "ADMIN1": {
       "name": "Admin",
-      "quotaLimitMB": 102400,
+      "quotaLimitMB": -1,
       "usedQuotaMB": 0,
       "createdAt": 1738332000000
     },

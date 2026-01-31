@@ -409,7 +409,9 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
         {isAuthenticated && user && (
           <View style={styles.quotaContainer}>
             <Text style={styles.quotaText}>
-              {user.name} • {getRemainingQuotaMB().toFixed(0)}MB / {user.quotaLimitMB}MB
+              {user.name} • {user.quotaLimitMB === -1
+                ? 'Unlimited'
+                : `${getRemainingQuotaMB().toFixed(0)}MB / ${user.quotaLimitMB}MB`}
             </Text>
           </View>
         )}

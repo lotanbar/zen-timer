@@ -255,19 +255,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   /**
    * Get remaining quota in MB
+   * Returns Infinity if quota is unlimited (quotaLimitMB === -1)
    */
   getRemainingQuotaMB: () => {
     const { user } = get();
     if (!user) return 0;
+    // -1 means unlimited quota
+    if (user.quotaLimitMB === -1) return Infinity;
     return Math.max(0, user.quotaLimitMB - user.quotaUsedMB);
   },
 
   /**
    * Check if user has quota remaining
+   * Always returns true if quota is unlimited (quotaLimitMB === -1)
    */
   hasQuotaRemaining: () => {
     const { user } = get();
     if (!user) return false;
+    // -1 means unlimited quota
+    if (user.quotaLimitMB === -1) return true;
     return user.quotaUsedMB < user.quotaLimitMB;
   },
 

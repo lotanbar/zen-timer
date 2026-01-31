@@ -44,7 +44,7 @@ const db = admin.database();
 const users = {
   'ADMIN1': {
     name: 'Admin',
-    quotaLimitMB: 102400, // 100 GB
+    quotaLimitMB: -1, // -1 = unlimited quota
     usedQuotaMB: 0,
     createdAt: Date.now(),
   },
@@ -74,7 +74,7 @@ async function seedUsers() {
       await userRef.set(userData);
       console.log(`✅ Created user: ${code}`);
       console.log(`   Name: ${userData.name}`);
-      console.log(`   Quota: ${(userData.quotaLimitMB / 1024).toFixed(0)} GB`);
+      console.log(`   Quota: ${userData.quotaLimitMB === -1 ? 'Unlimited' : `${(userData.quotaLimitMB / 1024).toFixed(0)} GB`}`);
       console.log(`   Used: ${userData.usedQuotaMB} MB\n`);
     }
 
