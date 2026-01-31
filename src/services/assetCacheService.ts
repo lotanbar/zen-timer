@@ -2,6 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Asset } from '../types';
 import { useAuthStore } from '../store/authStore';
+import { getSignedUrl } from './signedUrlService';
 
 const CACHE_DIR = `${FileSystem.cacheDirectory}zen-timer-assets/`;
 const IMAGES_DIR = `${CACHE_DIR}images/`;
@@ -221,20 +222,32 @@ class AssetCacheService {
       await removeCachedAsset(imageAssetId);
     }
 
-    // Step 3: Download from CDN
+    // Step 3: Get signed URL from Cloud Function
+    const { user } = useAuthStore.getState();
+    if (!user) {
+      console.error('User not authenticated');
+      return null;
+    }
+
+    let signedUrl: string;
+    try {
+      signedUrl = await getSignedUrl(asset.id, 'image', user.verificationCode);
+    } catch (error) {
+      console.error(`Failed to get signed URL for ${asset.id}:`, error);
+      return null;
+    }
+
+    // Step 4: Download from CDN using signed URL
     const ext = this.getImageExtension(asset);
     const localPath = `${IMAGES_DIR}${asset.id}.${ext}`;
 
     try {
-      const downloadResult = await FileSystem.downloadAsync(
-        asset.imageUrl,
-        localPath
-      );
+      const downloadResult = await FileSystem.downloadAsync(signedUrl, localPath);
 
       if (downloadResult.status === 200) {
         this.imageCache.set(asset.id, localPath);
 
-        // Step 4: Track bandwidth ONLY AFTER successful download
+        // Step 5: Track bandwidth ONLY AFTER successful download
         try {
           const fileInfo = await FileSystem.getInfoAsync(localPath);
           if (fileInfo.exists && fileInfo.size) {
@@ -290,24 +303,38 @@ class AssetCacheService {
     }
 
     // Step 2: File doesn't exist locally, check if Firebase thinks we have it
-    const { isAssetCached, removeCachedAsset } = useAuthStore.getState();
+    const { isAssetCached, removeCachedAsset, user } = useAuthStore.getState();
     if (isAssetCached(asset.id)) {
       // Mismatch! Firebase says we have it but we don't
       console.log(`Cache mismatch for ${asset.id}: Firebase says cached but file missing. Syncing...`);
       await removeCachedAsset(asset.id);
     }
 
-    // Step 3: Check for existing resume data (partial download)
+    if (!user) {
+      console.error('User not authenticated');
+      return null;
+    }
+
+    // Step 3: Get signed URL from Cloud Function
+    let signedUrl: string;
+    try {
+      signedUrl = await getSignedUrl(asset.id, 'audio', user.verificationCode);
+    } catch (error) {
+      console.error(`Failed to get signed URL for ${asset.id}:`, error);
+      throw error;
+    }
+
+    // Step 4: Check for existing resume data (partial download)
     const localPath = `${AUDIO_DIR}${asset.id}.mp3`;
     const resumeData = await this.getResumeData(asset.id);
 
     let downloadResumable: FileSystem.DownloadResumable;
 
     if (resumeData) {
-      // Resume existing download
+      // Resume existing download with NEW signed URL
       console.log(`Resuming download for ${asset.id} from ${resumeData.totalBytesWritten} bytes`);
       downloadResumable = new FileSystem.DownloadResumable(
-        resumeData.url,
+        signedUrl, // Use new signed URL
         resumeData.fileUri,
         resumeData.options,
         (progress) => onProgress?.(progress),
@@ -316,7 +343,7 @@ class AssetCacheService {
     } else {
       // New download
       downloadResumable = FileSystem.createDownloadResumable(
-        asset.audioUrl,
+        signedUrl,
         localPath,
         {},
         (progress) => onProgress?.(progress)
