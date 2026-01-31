@@ -1,6 +1,8 @@
 import React, { useRef, useImperativeHandle, forwardRef } from 'react';
-import { Pressable, View, Text, StyleSheet, Image, Animated, Dimensions } from 'react-native';
+import { Pressable, View, Text, StyleSheet, Animated, Dimensions } from 'react-native';
 import { COLORS, FONTS } from '../constants/theme';
+import { CachedImage } from './CachedImage';
+import { Asset } from '../types';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_HEIGHT = SCREEN_HEIGHT * 0.10;
@@ -9,7 +11,7 @@ const BORDER_RADIUS = 12;
 interface StepButtonProps {
   label: string;
   value: string;
-  imageUrl?: string | null;
+  asset?: Asset | null;
   onPress: () => void;
 }
 
@@ -18,7 +20,7 @@ export interface StepButtonRef {
 }
 
 export const StepButton = forwardRef<StepButtonRef, StepButtonProps>(
-  ({ label, value, imageUrl, onPress }, ref) => {
+  ({ label, value, asset, onPress }, ref) => {
     const animatedValue = useRef(new Animated.Value(0)).current;
 
     const pulse = () => {
@@ -60,8 +62,10 @@ export const StepButton = forwardRef<StepButtonRef, StepButtonProps>(
               <Text style={[styles.label, pressed && styles.labelPressed]}>{label}</Text>
               <View style={styles.valueContainer}>
                 <Text style={[styles.value, pressed && styles.valuePressed]} numberOfLines={1}>{value}</Text>
-                {imageUrl && (
-                  <Image source={{ uri: imageUrl }} style={styles.thumbnail} />
+                {asset && (
+                  <View style={styles.thumbnail}>
+                    <CachedImage asset={asset} style={styles.thumbnailImage} />
+                  </View>
                 )}
               </View>
             </View>
@@ -119,5 +123,10 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 6,
+    overflow: 'hidden',
+  },
+  thumbnailImage: {
+    width: 40,
+    height: 40,
   },
 });

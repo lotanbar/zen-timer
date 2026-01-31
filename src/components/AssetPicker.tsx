@@ -4,11 +4,11 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  Image,
   StyleSheet,
 } from 'react-native';
 import { Asset } from '../types';
 import { COLORS, FONTS } from '../constants/theme';
+import { CachedImage } from './CachedImage';
 
 interface AssetPickerProps {
   assets: Asset[];
@@ -53,7 +53,7 @@ export function AssetPicker({
                   <Text style={styles.noOptionIcon}>✕</Text>
                 </View>
               ) : (
-                <Image source={{ uri: item!.imageUrl }} style={styles.image} />
+                <CachedImage asset={item!} style={styles.image} />
               )}
             </View>
             <Text style={[styles.label, isSelected && styles.selectedLabel]} numberOfLines={2}>

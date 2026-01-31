@@ -19,6 +19,7 @@ import { audioService } from '../services/audioService';
 import { RootStackParamList, Asset } from '../types';
 import * as sampleGenerator from '../services/sampleGeneratorService';
 import { DEV_SAMPLE_ASSETS, DEV_SAMPLE_IDS } from '../constants/devAssets';
+import { assetCacheService } from '../services/assetCacheService';
 
 type AmbienceScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Ambience'>;
@@ -78,6 +79,8 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
       setAssets(allAssets);
       setStarredIds(starred);
       audioService.setAmbientAssets(allAssets);
+      // Prefetch signed URLs for all thumbnails in one batch request
+      assetCacheService.prefetchSignedUrls(allAssets, 'image');
       // Set initial selection - use null if ambienceId is null
       if (!storeAmbienceId) {
         setLocalAmbienceId(null);

@@ -16,8 +16,11 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { usePreferencesStore, getTotalSeconds, calculateBellTimes } from '../store/preferencesStore';
 import { useSessionStore } from '../store/sessionStore';
 import { audioService } from '../services/audioService';
+import { assetCacheService } from '../services/assetCacheService';
+import { getSignedUrl } from '../services/signedUrlService';
+import { useAuthStore } from '../store/authStore';
 import { COLORS, FONTS } from '../constants/theme';
-import { RootStackParamList } from '../types';
+import { RootStackParamList, Asset } from '../types';
 import { DEV_SAMPLE_ASSETS } from '../constants/devAssets';
 import { BELL_ASSETS } from '../constants/assets';
 import { useDevModeStore } from '../store/devModeStore';
@@ -125,8 +128,30 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
         return;
       }
 
-      const ambientUri = ambientAsset?.audioUrl || '';
-      const bellUri = bellAsset.audioUrl;
+      // Get proper URIs (cached local path or signed URL for streaming)
+      const { user } = useAuthStore.getState();
+
+      const getAudioUri = async (asset: Asset): Promise<string> => {
+        // Check for bundled audio
+        if (asset.audioUrl.startsWith('BUNDLED:')) {
+          return asset.audioUrl; // Native code handles bundled assets
+        }
+        // Check if cached locally AND file is valid (exists with reasonable size)
+        const cachedPath = await assetCacheService.getValidatedAudioPath(asset.id);
+        if (cachedPath) {
+          return cachedPath;
+        }
+        // Not cached or invalid - get signed URL for streaming
+        if (!user) {
+          console.error('[TimerScreen] No user for signed URL');
+          return asset.audioUrl; // Fallback (will fail)
+        }
+        const url = new URL(asset.audioUrl);
+        return await getSignedUrl(asset.id, 'audio', user.verificationCode, url.pathname);
+      };
+
+      const ambientUri = ambientAsset ? await getAudioUri(ambientAsset) : '';
+      const bellUri = await getAudioUri(bellAsset);
 
       // Calculate bell times
       const bellTimes = calculateBellTimes(totalSeconds, repeatBell);

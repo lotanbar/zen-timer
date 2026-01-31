@@ -377,10 +377,10 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
       return;
     }
 
-    // Check if ambience needs to be downloaded
+    // Check if ambience needs to be downloaded (with validation)
     const selectedAmbience = allAmbienceAssets.find(a => a.id === ambienceId);
     if (selectedAmbience) {
-      const cachedPath = assetCacheService.getCachedAudioPath(selectedAmbience.id);
+      const cachedPath = await assetCacheService.getValidatedAudioPath(selectedAmbience.id);
 
       if (!cachedPath) {
         // Need to download (or resume) the ambience file
@@ -471,14 +471,14 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
           ref={ambienceRef}
           label="Ambience"
           value={ambienceValue}
-          imageUrl={selectedAmbience?.imageUrl}
+          asset={selectedAmbience}
           onPress={() => handleNavigate('Ambience')}
         />
         <StepButton
           ref={bellRef}
           label="Bell"
           value={bellValue}
-          imageUrl={selectedBell?.imageUrl}
+          asset={selectedBell}
           onPress={() => handleNavigate('Bell')}
         />
       </View>

@@ -9,9 +9,46 @@ const BUNNY_SECRET = '267a4c7a-f95a-41e4-8b9a-8249ed065e5c';
 const BUNNY_CDN_URL = 'https://zentimer-assets.b-cdn.net';
 const URL_EXPIRATION_SECONDS = 3600; // 1 hour
 
+// Rate limiting configuration
+const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute window
+const RATE_LIMIT_MAX_REQUESTS = 200; // Max 200 requests per minute
+
+/**
+ * Check and update rate limit for a user
+ * @param {string} verificationCode - User's verification code
+ * @returns {Promise<boolean>} - true if allowed, false if rate limited
+ */
+async function checkRateLimit(verificationCode) {
+  const now = Date.now();
+  const rateLimitRef = admin.database().ref(`rateLimit/${verificationCode}`);
+
+  const result = await rateLimitRef.transaction((current) => {
+    if (!current) {
+      // First request
+      return { count: 1, windowStart: now };
+    }
+
+    if (now - current.windowStart > RATE_LIMIT_WINDOW_MS) {
+      // Window expired, reset
+      return { count: 1, windowStart: now };
+    }
+
+    if (current.count >= RATE_LIMIT_MAX_REQUESTS) {
+      // Rate limited - abort transaction by returning undefined
+      return;
+    }
+
+    // Increment count
+    return { count: current.count + 1, windowStart: current.windowStart };
+  });
+
+  // Transaction aborted means rate limited
+  return result.committed;
+}
+
 /**
  * Generate a signed URL for Bunny.net CDN
- * @param {string} path - File path (e.g., "/audio/ocean-waves.mp3")
+ * @param {string} path - File path (e.g., "/audio/ocean-waves.mp3") - can be URL-encoded
  * @param {number} expirationSeconds - How long the URL is valid
  * @returns {object} - { signedUrl, expires }
  */
@@ -19,8 +56,11 @@ function generateSignedUrl(path, expirationSeconds = URL_EXPIRATION_SECONDS) {
   // Calculate expiration timestamp
   const expires = Math.floor(Date.now() / 1000) + expirationSeconds;
 
-  // Create hash: md5(secret + path + expires)
-  const hashString = `${BUNNY_SECRET}${path}${expires}`;
+  // Bunny.net requires the DECODED path for hash computation
+  const decodedPath = decodeURIComponent(path);
+
+  // Create hash: md5(secret + decodedPath + expires)
+  const hashString = `${BUNNY_SECRET}${decodedPath}${expires}`;
   const hash = crypto.createHash('md5').update(hashString).digest('base64');
 
   // URL-safe base64 encoding
@@ -29,8 +69,9 @@ function generateSignedUrl(path, expirationSeconds = URL_EXPIRATION_SECONDS) {
     .replace(/\//g, '_')
     .replace(/=/g, '');
 
-  // Build signed URL
-  const signedUrl = `${BUNNY_CDN_URL}${path}?token=${token}&expires=${expires}`;
+  // Build signed URL with encoded path
+  const encodedPath = encodeURI(decodedPath);
+  const signedUrl = `${BUNNY_CDN_URL}${encodedPath}?token=${token}&expires=${expires}`;
 
   return { signedUrl, expires };
 }
@@ -57,8 +98,17 @@ exports.getSignedUrl = functions.https.onCall(async (data, context) => {
     );
   }
 
+  // 2. Check rate limit
+  const allowed = await checkRateLimit(verificationCode);
+  if (!allowed) {
+    throw new functions.https.HttpsError(
+      'resource-exhausted',
+      'Rate limit exceeded. Please wait a moment before trying again.'
+    );
+  }
+
   try {
-    // 2. Verify user exists and has quota
+    // 3. Verify user exists and has quota
     const userRef = admin.database().ref(`users/${verificationCode}`);
     const snapshot = await userRef.once('value');
     const user = snapshot.val();
@@ -78,7 +128,7 @@ exports.getSignedUrl = functions.https.onCall(async (data, context) => {
       );
     }
 
-    // 3. Build file path
+    // 4. Build file path
     let path;
     if (filePath) {
       // Use provided file path (for audio streaming with full CDN structure)
@@ -96,10 +146,10 @@ exports.getSignedUrl = functions.https.onCall(async (data, context) => {
       );
     }
 
-    // 4. Generate signed URL
+    // 5. Generate signed URL
     const { signedUrl, expires } = generateSignedUrl(path);
 
-    // 5. Log request (optional - for monitoring)
+    // 6. Log request (optional - for monitoring)
     console.log(`Generated signed URL for ${verificationCode}: ${path}`);
 
     return {
@@ -142,8 +192,17 @@ exports.getBatchSignedUrls = functions.https.onCall(async (data, context) => {
     );
   }
 
+  // 2. Check rate limit
+  const allowed = await checkRateLimit(verificationCode);
+  if (!allowed) {
+    throw new functions.https.HttpsError(
+      'resource-exhausted',
+      'Rate limit exceeded. Please wait a moment before trying again.'
+    );
+  }
+
   try {
-    // 2. Verify user exists and has quota
+    // 3. Verify user exists and has quota
     const userRef = admin.database().ref(`users/${verificationCode}`);
     const snapshot = await userRef.once('value');
     const user = snapshot.val();
@@ -163,10 +222,13 @@ exports.getBatchSignedUrls = functions.https.onCall(async (data, context) => {
       );
     }
 
-    // 3. Generate signed URLs for all assets
-    const results = assets.map(({ assetId, assetType }) => {
+    // 4. Generate signed URLs for all assets
+    const results = assets.map(({ assetId, assetType, filePath }) => {
       let path;
-      if (assetType === 'audio') {
+      if (filePath) {
+        // Use provided file path (for thumbnails/audio with full CDN structure)
+        path = filePath;
+      } else if (assetType === 'audio') {
         path = `/audio/${assetId}.mp3`;
       } else if (assetType === 'image') {
         const ext = assetId.includes('bell') ? 'png' : 'jpg';

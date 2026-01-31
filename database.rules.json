@@ -1,15 +1,19 @@
 {
   "rules": {
     "users": {
+      ".read": false,
+      ".write": false,
       "$verificationCode": {
         ".read": true,
         ".write": true,
         ".validate": "newData.hasChildren(['name', 'quotaLimitMB', 'quotaUsedMB'])",
         "name": {
-          ".validate": "newData.isString()"
+          ".validate": "newData.isString()",
+          ".write": false
         },
         "quotaLimitMB": {
-          ".validate": "newData.isNumber() && (newData.val() >= 0 || newData.val() === -1)"
+          ".validate": "newData.isNumber() && (newData.val() >= 0 || newData.val() === -1)",
+          ".write": false
         },
         "quotaUsedMB": {
           ".validate": "newData.isNumber() && newData.val() >= 0"
@@ -20,6 +24,12 @@
         "partialDownloads": {
           ".validate": "newData.hasChildren()"
         }
+      }
+    },
+    "rateLimit": {
+      "$verificationCode": {
+        ".read": false,
+        ".write": false
       }
     }
   }

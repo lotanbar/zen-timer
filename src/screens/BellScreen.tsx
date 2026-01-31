@@ -14,6 +14,7 @@ import { usePreferencesStore } from '../store/preferencesStore';
 import { COLORS, FONTS } from '../constants/theme';
 import { audioService } from '../services/audioService';
 import { getBellAssets } from '../services/assetDiscoveryService';
+import { assetCacheService } from '../services/assetCacheService';
 import { RootStackParamList, RepeatBellOptions as RepeatBellOptionsType, Asset } from '../types';
 
 type BellScreenProps = {
@@ -42,6 +43,8 @@ export function BellScreen({ navigation }: BellScreenProps) {
         const bells = await getBellAssets();
         setBellAssets(bells);
         audioService.setBellAssets(bells);
+        // Prefetch signed URLs for all thumbnails in one batch request
+        assetCacheService.prefetchSignedUrls(bells, 'image');
       } catch (error) {
         console.error('Failed to load bell assets:', error);
       } finally {

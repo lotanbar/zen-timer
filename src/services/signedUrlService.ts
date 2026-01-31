@@ -9,6 +9,7 @@ export interface SignedUrlResponse {
 export interface BatchSignedUrlRequest {
   assetId: string;
   assetType: 'audio' | 'image';
+  filePath?: string;
 }
 
 export interface BatchSignedUrlResponse {
