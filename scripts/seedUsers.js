@@ -42,13 +42,13 @@ const db = admin.database();
 
 // User data
 const users = {
-  'ADMIN1': {
+  'K7M3A9': {
     name: 'Admin',
     quotaLimitMB: -1, // -1 = unlimited quota
     usedQuotaMB: 0,
     createdAt: Date.now(),
   },
-  'UNCLE1': {
+  'P5N8R2': {
     name: 'Uncle',
     quotaLimitMB: 512000, // 500 GB (~$5 at $0.01/GB)
     usedQuotaMB: 0,
@@ -80,8 +80,8 @@ async function seedUsers() {
 
     console.log('✨ Seeding complete!\n');
     console.log('Access codes:');
-    console.log('  Admin: ADMIN1');
-    console.log('  Uncle: UNCLE1');
+    console.log('  Admin: K7M3A9');
+    console.log('  Uncle: P5N8R2');
 
     process.exit(0);
   } catch (error) {
