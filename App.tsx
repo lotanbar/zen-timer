@@ -8,6 +8,7 @@ import { audioService } from './src/services/audioService';
 import { assetCacheService } from './src/services/assetCacheService';
 import { getBellAssets } from './src/services/assetDiscoveryService';
 import { usePreferencesStore } from './src/store/preferencesStore';
+import { initializeAuth } from './src/store/authStore';
 import { COLORS } from './src/constants/theme';
 
 const DarkTheme = {
@@ -23,6 +24,9 @@ const DarkTheme = {
 export default function App() {
   useEffect(() => {
     const init = async () => {
+      // Initialize auth from AsyncStorage
+      await initializeAuth();
+
       await audioService.init();
       await assetCacheService.init();
 
