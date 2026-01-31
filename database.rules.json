@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "users": {
+      "$verificationCode": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['name', 'quotaLimitMB', 'quotaUsedMB'])",
+        "name": {
+          ".validate": "newData.isString()"
+        },
+        "quotaLimitMB": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "quotaUsedMB": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "cachedAssets": {
+          ".validate": "newData.hasChildren()"
+        },
+        "partialDownloads": {
+          ".validate": "newData.hasChildren()"
+        }
+      }
+    }
+  }
+}

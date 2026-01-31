@@ -6,7 +6,7 @@ admin.initializeApp();
 
 // Bunny.net configuration
 const BUNNY_SECRET = '267a4c7a-f95a-41e4-8b9a-8249ed065e5c';
-const BUNNY_CDN_URL = 'https://zen-timer.b-cdn.net'; // Update with your actual CDN URL
+const BUNNY_CDN_URL = 'https://zentimer-assets.b-cdn.net';
 const URL_EXPIRATION_SECONDS = 3600; // 1 hour
 
 /**
