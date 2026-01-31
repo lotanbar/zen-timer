@@ -174,7 +174,11 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     width: '100%',
     height: '100%',
     backgroundColor: 'rgba(0, 0, 0, 0.9)',
@@ -184,6 +188,7 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     paddingHorizontal: 20,
+    alignItems: 'center',
   },
   modal: {
     backgroundColor: COLORS.background,

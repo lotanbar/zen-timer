@@ -14,14 +14,19 @@
 import database from '@react-native-firebase/database';
 
 export const firebaseConfig = {
-  databaseURL: "https://zen-timer-7764e-default-rtdb.europe-west1.firebasedatabase.app/",
+  databaseURL: "https://zen-timer-7764e-default-rtdb.europe-west1.firebasedatabase.app",
 };
+
+/**
+ * Get database instance with correct URL
+ */
+const getDatabase = () => database(firebaseConfig.databaseURL);
 
 /**
  * Firebase Database reference for users
  * Structure: /users/{verificationCode}/{ name, quotaLimitMB, quotaUsedMB, resetDate, cachedAssets[] }
  */
-export const usersRef = () => database().ref('/users');
+export const usersRef = () => getDatabase().ref('/users');
 
 /**
  * Get user data by verification code
