@@ -98,12 +98,12 @@ class BellAlarmReceiver : BroadcastReceiver() {
 
                 setOnPreparedListener { mp ->
                     mp.start()
-                    Log.d(TAG, "Bell playing with 3s fade in to 40% volume")
+                    Log.d(TAG, "Bell playing with 5s fade in to 32% volume")
 
-                    // Fade in over 3 seconds to 40% volume
+                    // Fade in over 5 seconds to 32% volume
                     val handler = android.os.Handler(android.os.Looper.getMainLooper())
-                    val targetVolume = 0.4f
-                    val fadeDurationMs = 3000L
+                    val targetVolume = 0.32f
+                    val fadeDurationMs = 5000L
                     val steps = 30
                     val stepDuration = fadeDurationMs / steps
 
