@@ -49,6 +49,38 @@ class BellAlarmReceiver : BroadcastReceiver() {
             }
             currentWakeLock = null
         }
+
+        fun fadeOutCurrentBell(durationMs: Int) {
+            val mp = currentMediaPlayer ?: return
+            if (!mp.isPlaying) return
+
+            Log.d(TAG, "Fading out bell over ${durationMs}ms")
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            val steps = 50
+            val stepDuration = durationMs.toLong() / steps
+
+            // Get current volume (assume it's at target 0.32f after fade-in)
+            var currentStep = steps
+
+            val fadeRunnable = object : Runnable {
+                override fun run() {
+                    try {
+                        if (currentStep >= 0 && currentMediaPlayer != null && mp.isPlaying) {
+                            val volume = (currentStep.toFloat() / steps) * 0.32f
+                            mp.setVolume(volume, volume)
+                            currentStep--
+                            handler.postDelayed(this, stepDuration)
+                        } else if (currentStep < 0) {
+                            Log.d(TAG, "Bell fade out complete")
+                            // Don't stop/release here - let onCompletionListener handle it
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error during bell fade: ${e.message}")
+                    }
+                }
+            }
+            handler.post(fadeRunnable)
+        }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -64,6 +96,9 @@ class BellAlarmReceiver : BroadcastReceiver() {
             fadeIntent.setPackage(context.packageName) // Make broadcast explicit
             fadeIntent.putExtra("duration", 10000) // 10 seconds
             context.sendBroadcast(fadeIntent)
+
+            // Also fade out the bell if it's currently playing
+            fadeOutCurrentBell(10000)
             return
         }
 
