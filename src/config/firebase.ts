@@ -18,15 +18,11 @@ export const firebaseConfig = {
 };
 
 /**
- * Get database instance with correct URL
- */
-const getDatabase = () => database(firebaseConfig.databaseURL);
-
-/**
  * Firebase Database reference for users
  * Structure: /users/{verificationCode}/{ name, quotaLimitMB, quotaUsedMB, resetDate, cachedAssets[] }
+ * Note: Database URL is configured in android/app/google-services.json
  */
-export const usersRef = () => getDatabase().ref('/users');
+export const usersRef = () => database().ref('/users');
 
 /**
  * Get user data by verification code
