@@ -57,7 +57,12 @@ export class PreviewPlayer {
     }
 
     try {
-      const signedUrl = await getSignedUrl(assetId, 'audio', user.verificationCode);
+      // Extract path from audioUrl (e.g., "https://cdn.net/folder/file.mp3" -> "/folder/file.mp3")
+      const url = new URL(asset.audioUrl);
+      const filePath = url.pathname;
+
+      // Get signed URL with the actual file path from CDN
+      const signedUrl = await getSignedUrl(assetId, 'audio', user.verificationCode, filePath);
       return { uri: signedUrl };
     } catch (error) {
       console.error('[Preview] Failed to get signed URL:', error);

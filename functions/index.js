@@ -40,13 +40,20 @@ function generateSignedUrl(path, expirationSeconds = URL_EXPIRATION_SECONDS) {
  * Called from the React Native app
  */
 exports.getSignedUrl = functions.https.onCall(async (data, context) => {
-  const { assetId, assetType, verificationCode } = data;
+  const { assetId, assetType, verificationCode, filePath } = data;
 
   // 1. Validate input
-  if (!assetId || !assetType || !verificationCode) {
+  if (!assetType || !verificationCode) {
     throw new functions.https.HttpsError(
       'invalid-argument',
-      'Missing required parameters: assetId, assetType, verificationCode'
+      'Missing required parameters: assetType, verificationCode'
+    );
+  }
+
+  if (!assetId && !filePath) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'Either assetId or filePath must be provided'
     );
   }
 
@@ -73,7 +80,10 @@ exports.getSignedUrl = functions.https.onCall(async (data, context) => {
 
     // 3. Build file path
     let path;
-    if (assetType === 'audio') {
+    if (filePath) {
+      // Use provided file path (for audio streaming with full CDN structure)
+      path = filePath;
+    } else if (assetType === 'audio') {
       path = `/audio/${assetId}.mp3`;
     } else if (assetType === 'image') {
       // Determine extension based on asset type (bell = png, others = jpg)

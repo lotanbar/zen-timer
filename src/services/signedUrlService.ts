@@ -29,7 +29,8 @@ export interface BatchSignedUrlResponse {
 export async function getSignedUrl(
   assetId: string,
   assetType: 'audio' | 'image',
-  verificationCode: string
+  verificationCode: string,
+  filePath?: string
 ): Promise<string> {
   try {
     const callable = functions().httpsCallable('getSignedUrl');
@@ -37,6 +38,7 @@ export async function getSignedUrl(
       assetId,
       assetType,
       verificationCode,
+      filePath,
     });
 
     const data = result.data as SignedUrlResponse;
