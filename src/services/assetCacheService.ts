@@ -188,6 +188,15 @@ class AssetCacheService {
   async cacheImage(asset: Asset): Promise<string | null> {
     await this.init();
 
+    // Step 0: Sync before download to ensure consistency
+    const { syncWithFirebase } = useAuthStore.getState();
+    try {
+      await syncWithFirebase();
+    } catch (error) {
+      console.error('Pre-download sync failed:', error);
+      // Continue anyway - sync is best effort
+    }
+
     // Step 1: Check if file exists locally
     if (this.imageCache.has(asset.id)) {
       const cachedPath = this.imageCache.get(asset.id)!;
@@ -255,6 +264,15 @@ class AssetCacheService {
     onProgress?: (progress: { totalBytesWritten: number; totalBytesExpectedToWrite: number }) => void
   ): Promise<string | null> {
     await this.init();
+
+    // Step 0: Sync before download to ensure consistency
+    const { syncWithFirebase } = useAuthStore.getState();
+    try {
+      await syncWithFirebase();
+    } catch (error) {
+      console.error('Pre-download sync failed:', error);
+      // Continue anyway - sync is best effort
+    }
 
     // Step 1: Check if file exists locally and is complete
     if (this.audioCache.has(asset.id)) {
@@ -334,6 +352,14 @@ class AssetCacheService {
       // Success - clear resume data and add to cache
       await AsyncStorage.removeItem(`download_resume_${asset.id}`);
       this.audioCache.set(asset.id, result.uri);
+
+      // Sync after successful download
+      try {
+        await syncWithFirebase();
+      } catch (error) {
+        console.error('Post-download sync failed:', error);
+        // Don't fail the download if sync fails
+      }
 
       console.log(`Successfully downloaded ${asset.id}: ${fileSizeMB.toFixed(2)}MB`);
       return result.uri;

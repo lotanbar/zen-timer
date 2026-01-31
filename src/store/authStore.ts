@@ -7,6 +7,7 @@ import {
   hasAssetCached,
   usersRef,
 } from '../config/firebase';
+import { syncService, type SyncResult } from '../services/syncService';
 
 export interface UserData {
   verificationCode: string;
@@ -34,6 +35,7 @@ interface AuthState {
   removeCachedAsset: (assetId: string) => Promise<void>;
   getRemainingQuotaMB: () => number;
   hasQuotaRemaining: () => boolean;
+  syncWithFirebase: () => Promise<SyncResult>;
 }
 
 const STORAGE_KEY = 'zen-timer-auth';
@@ -267,6 +269,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { user } = get();
     if (!user) return false;
     return user.quotaUsedMB < user.quotaLimitMB;
+  },
+
+  /**
+   * Sync local storage with Firebase
+   * Makes local storage the source of truth
+   */
+  syncWithFirebase: async () => {
+    return await syncService.syncWithFirebase();
   },
 }));
 

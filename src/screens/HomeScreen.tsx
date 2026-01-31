@@ -24,6 +24,7 @@ import { getBellAssets } from '../services/assetDiscoveryService';
 import { DEV_SAMPLE_ASSETS, DEV_SAMPLE_IDS } from '../constants/devAssets';
 import { RootStackParamList, Asset } from '../types';
 import * as sampleGenerator from '../services/sampleGeneratorService';
+import { syncService } from '../services/syncService';
 
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -143,12 +144,24 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     }
   }, [isLoading, isAuthenticated]);
 
-  // Check for partial downloads on app launch (only if authenticated)
+  // Run sync and check for partial downloads on app launch (only if authenticated)
   useEffect(() => {
-    async function checkPartialDownloads() {
+    async function runStartupSync() {
       if (!isAuthenticated) return;
 
       try {
+        // Step 1: Sync local storage with Firebase
+        console.log('Running startup sync...');
+        const syncResult = await syncService.syncWithFirebase();
+
+        // Show toast if there were significant changes
+        const message = syncService.formatSyncMessage(syncResult);
+        if (message) {
+          setToastMessage(message);
+          setShowToast(true);
+        }
+
+        // Step 2: Check for partial downloads
         const partials = await assetCacheService.detectPartialDownloads();
         if (partials.length > 0) {
           console.log(`Found ${partials.length} partial download(s)`);
@@ -156,11 +169,11 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
           setShowPartialModal(true);
         }
       } catch (error) {
-        console.error('Failed to check for partial downloads:', error);
+        console.error('Startup sync failed:', error);
       }
     }
 
-    checkPartialDownloads();
+    runStartupSync();
   }, [isAuthenticated]);
 
   // Reload ambience samples when screen is focused (in case user refreshed in AmbienceScreen)
