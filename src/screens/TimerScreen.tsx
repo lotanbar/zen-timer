@@ -16,6 +16,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { usePreferencesStore, getTotalSeconds, calculateBellTimes } from '../store/preferencesStore';
 import { useSessionStore } from '../store/sessionStore';
 import { audioService } from '../services/audioService';
+import { isScreenInteractive } from '../services/screenStateService';
 import { assetCacheService } from '../services/assetCacheService';
 import { getSignedUrl } from '../services/signedUrlService';
 import { useAuthStore } from '../store/authStore';
@@ -127,14 +128,17 @@ export function TimerScreen({ navigation }: TimerScreenProps) {
     console.log('[Timer] Meditation resumed');
   }, [isPaused, totalSeconds]);
 
-  // Listen for app state changes to pause when backgrounded
+  // Listen for app state changes to pause only when user minimizes (not screen off)
   useEffect(() => {
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+    const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (isCompletedRef.current) return;
 
       if (nextAppState === 'background' || nextAppState === 'inactive') {
-        // App went to background - pause
-        if (!isPaused) {
+        // ACTION_SCREEN_OFF fires before onPause() on Android, so
+        // PowerManager.isInteractive is already false by this point.
+        // No delay — setTimeout would get frozen with the JS thread in background.
+        const screenOn = await isScreenInteractive();
+        if (screenOn && !isPaused) {
           handlePause();
         }
       }

@@ -145,11 +145,15 @@ class BellAlarmReceiver : BroadcastReceiver() {
                     var currentStep = 0
                     val fadeRunnable = object : Runnable {
                         override fun run() {
-                            if (currentStep <= steps && mp.isPlaying) {
-                                val volume = (currentStep.toFloat() / steps) * targetVolume
-                                mp.setVolume(volume, volume)
-                                currentStep++
-                                handler.postDelayed(this, stepDuration)
+                            try {
+                                if (currentStep <= steps && currentMediaPlayer != null && mp.isPlaying) {
+                                    val volume = (currentStep.toFloat() / steps) * targetVolume
+                                    mp.setVolume(volume, volume)
+                                    currentStep++
+                                    handler.postDelayed(this, stepDuration)
+                                }
+                            } catch (e: IllegalStateException) {
+                                Log.d(TAG, "Bell fade-in stopped: player released")
                             }
                         }
                     }

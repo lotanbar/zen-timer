@@ -42,6 +42,15 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
     // Bell alarm tracking
     private val scheduledBellAlarms = mutableListOf<PendingIntent>()
 
+    // Pause/resume state for rescheduling bells
+    private var savedBellUri: String = ""
+    private var savedBellTimesSeconds: IntArray = intArrayOf()
+    private var savedTimerDurationSeconds: Int = 0
+    private var timerStartElapsedRealtime: Long = 0
+    private var pausedAtElapsedRealtime: Long = 0
+    private var totalPausedMs: Long = 0
+    private var isPausedState = false
+
     // Broadcast receiver for timer completion
     private val timerCompleteReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -247,7 +256,20 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
     fun pause(promise: Promise) {
         handler.post {
             try {
+                if (isPausedState) {
+                    promise.resolve(true)
+                    return@post
+                }
+                isPausedState = true
+                pausedAtElapsedRealtime = SystemClock.elapsedRealtime()
+
+                // Pause ambient audio
                 player?.pause()
+
+                // Cancel all scheduled bell/fade alarms — they'll be rescheduled on resume
+                cancelBells()
+
+                Log.d(TAG, "Paused: ambient + bells cancelled at elapsed=${pausedAtElapsedRealtime}")
                 promise.resolve(true)
             } catch (e: Exception) {
                 promise.reject("ERROR", e.message)
@@ -259,11 +281,111 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
     fun resume(promise: Promise) {
         handler.post {
             try {
+                if (!isPausedState) {
+                    promise.resolve(true)
+                    return@post
+                }
+
+                val pauseDuration = SystemClock.elapsedRealtime() - pausedAtElapsedRealtime
+                totalPausedMs += pauseDuration
+                isPausedState = false
+
+                // Resume ambient audio
                 player?.play()
+
+                // Reschedule bells with adjusted times
+                rescheduleBells()
+
+                Log.d(TAG, "Resumed: paused for ${pauseDuration}ms, total paused=${totalPausedMs}ms")
                 promise.resolve(true)
             } catch (e: Exception) {
                 promise.reject("ERROR", e.message)
             }
+        }
+    }
+
+    private fun rescheduleBells() {
+        if (savedBellUri.isEmpty() || savedBellTimesSeconds.isEmpty()) {
+            Log.d(TAG, "No bells to reschedule")
+            return
+        }
+
+        val alarmManager = reactApplicationContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val now = SystemClock.elapsedRealtime()
+        // How many seconds have truly elapsed (excluding paused time)
+        val activeElapsedMs = now - timerStartElapsedRealtime - totalPausedMs
+        val activeElapsedSeconds = activeElapsedMs / 1000
+
+        for (i in savedBellTimesSeconds.indices) {
+            val bellTimeSeconds = savedBellTimesSeconds[i].toLong()
+            val remainingSeconds = bellTimeSeconds - activeElapsedSeconds
+            if (remainingSeconds <= 0) {
+                Log.d(TAG, "Bell at ${bellTimeSeconds}s already past (elapsed=${activeElapsedSeconds}s), skipping")
+                continue
+            }
+
+            val isFinal = (i == savedBellTimesSeconds.size - 1)
+            val triggerAtMillis = now + (remainingSeconds * 1000)
+
+            val intent = Intent(reactApplicationContext, BellAlarmReceiver::class.java).apply {
+                action = BellAlarmReceiver.ACTION_PLAY_BELL
+                putExtra(BellAlarmReceiver.EXTRA_BELL_URI, savedBellUri)
+                putExtra(BellAlarmReceiver.EXTRA_IS_FINAL, isFinal)
+            }
+
+            val pendingIntent = PendingIntent.getBroadcast(
+                reactApplicationContext,
+                i,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+            }
+
+            scheduledBellAlarms.add(pendingIntent)
+            Log.d(TAG, "Rescheduled bell ${i + 1} in ${remainingSeconds}s (isFinal=$isFinal)")
+        }
+
+        // Reschedule ambient fade
+        val fadeRemainingSeconds = savedTimerDurationSeconds.toLong() - activeElapsedSeconds
+        if (fadeRemainingSeconds > 0) {
+            val fadeIntent = Intent(reactApplicationContext, BellAlarmReceiver::class.java).apply {
+                action = BellAlarmReceiver.ACTION_START_FADE
+            }
+            val fadePendingIntent = PendingIntent.getBroadcast(
+                reactApplicationContext,
+                9999,
+                fadeIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val fadeTriggerMillis = now + (fadeRemainingSeconds * 1000)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    fadeTriggerMillis,
+                    fadePendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    fadeTriggerMillis,
+                    fadePendingIntent
+                )
+            }
+            scheduledBellAlarms.add(fadePendingIntent)
+            Log.d(TAG, "Rescheduled ambient fade in ${fadeRemainingSeconds}s")
         }
     }
 
@@ -385,6 +507,14 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
     ) {
         try {
             Log.d(TAG, "Starting meditation timer: ambient=$ambientUri, bell=$bellUri, duration=${timerDurationSeconds}s")
+
+            // Save bell scheduling info for pause/resume rescheduling
+            savedBellUri = bellUri
+            savedBellTimesSeconds = IntArray(bellTimesSeconds.size()) { bellTimesSeconds.getInt(it) }
+            savedTimerDurationSeconds = timerDurationSeconds
+            timerStartElapsedRealtime = SystemClock.elapsedRealtime()
+            totalPausedMs = 0
+            isPausedState = false
 
             // 1. Start ambient audio - loadAndPlay handles its own handler.post and promise
             handler.post {
@@ -638,10 +768,12 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
 
     private fun stopForegroundService() {
         try {
-            val intent = Intent(reactApplicationContext, AudioPlaybackService::class.java).apply {
-                action = AudioPlaybackService.ACTION_STOP
-            }
-            reactApplicationContext.startService(intent)
+            // Use stopService() instead of sending a STOP intent via startService().
+            // startService() triggers onStartCommand() which calls startForeground() —
+            // that throws ForegroundServiceStartNotAllowedException on Android 12+
+            // when the app is in the background (e.g. screen off after timer completes).
+            val intent = Intent(reactApplicationContext, AudioPlaybackService::class.java)
+            reactApplicationContext.stopService(intent)
             Log.d(TAG, "Foreground service stopped")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to stop foreground service: ${e.message}")
