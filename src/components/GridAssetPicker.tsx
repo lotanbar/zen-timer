@@ -24,9 +24,9 @@ interface GridAssetPickerProps {
 }
 
 const { width } = Dimensions.get('window');
-const NUM_COLUMNS = 3;
-const ITEM_MARGIN = 12;
-const ITEM_SIZE = (width - 40 - ITEM_MARGIN * (NUM_COLUMNS - 1)) / NUM_COLUMNS;
+export const NUM_COLUMNS = 3;
+export const ITEM_MARGIN = 12;
+export const ITEM_SIZE = (width - 40 - ITEM_MARGIN * (NUM_COLUMNS - 1)) / NUM_COLUMNS;
 
 function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);

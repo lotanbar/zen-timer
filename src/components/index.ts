@@ -1,7 +1,7 @@
 export { Accordion } from './Accordion';
 export { ScrollPicker } from './ScrollPicker';
 export { AssetPicker } from './AssetPicker';
-export { GridAssetPicker } from './GridAssetPicker';
+export { GridAssetPicker, NUM_COLUMNS, ITEM_SIZE, ITEM_MARGIN } from './GridAssetPicker';
 export { SlotCarousel } from './SlotCarousel';
 export { DurationPicker } from './DurationPicker';
 export { RepeatingBellOptions } from './RepeatingBellOptions';

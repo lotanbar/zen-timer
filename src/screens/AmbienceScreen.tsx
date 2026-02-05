@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Path } from 'react-native-svg';
-import { GridAssetPicker, SearchBar } from '../components';
+import { GridAssetPicker, SearchBar, NUM_COLUMNS, ITEM_SIZE, ITEM_MARGIN } from '../components';
 import { usePreferencesStore } from '../store/preferencesStore';
 import { useDevModeStore } from '../store/devModeStore';
 import { COLORS, FONTS } from '../constants/theme';
@@ -222,7 +222,16 @@ export function AmbienceScreen({ navigation }: AmbienceScreenProps) {
     const randomIndex = Math.floor(Math.random() * filteredAssets.length);
     const randomAsset = filteredAssets[randomIndex];
     handleAmbienceSelect(randomAsset.id);
-    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+
+    // Scroll to the row containing the selected tile
+    // +1 accounts for the "None" tile at position 0
+    const dataIndex = randomIndex + 1;
+    const rowIndex = Math.floor(dataIndex / NUM_COLUMNS);
+    // Approximate row height: image + label + row margin
+    const rowHeight = ITEM_SIZE - 10 + 6 + 14 + ITEM_MARGIN;
+    // Add container paddingVertical (10) offset
+    const scrollY = Math.max(0, rowIndex * rowHeight + 10 - 20);
+    scrollViewRef.current?.scrollTo({ y: scrollY, animated: true });
   };
 
   const handleSelect = async () => {

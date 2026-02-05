@@ -63,17 +63,6 @@ export function ScrollPicker({ values, selectedValue, onChange, label, size = 'n
     }
   };
 
-  const handleTap = (index: number) => {
-    const clampedIndex = Math.max(0, Math.min(index, values.length - 1));
-    scrollRef.current?.scrollTo({
-      y: clampedIndex * itemHeight,
-      animated: true,
-    });
-    if (values[clampedIndex] !== selectedValue) {
-      onChange(values[clampedIndex]);
-    }
-  };
-
   return (
     <View style={styles.container}>
       <View style={[styles.pickerContainer, { height: itemHeight * VISIBLE_ITEMS, width }]}>
@@ -89,19 +78,17 @@ export function ScrollPicker({ values, selectedValue, onChange, label, size = 'n
           nestedScrollEnabled
           scrollEventThrottle={16}
         >
-          {values.map((item, index) => {
+          {values.map((item) => {
             const isSelected = item === selectedValue;
             return (
-              <TouchableOpacity
+              <View
                 key={item}
                 style={[styles.item, { height: itemHeight }]}
-                onPress={() => handleTap(index)}
-                activeOpacity={0.7}
               >
                 <Text style={[styles.itemText, { fontSize }, isSelected && styles.selectedText]}>
                   {item.toString().padStart(2, '0')}
                 </Text>
-              </TouchableOpacity>
+              </View>
             );
           })}
         </ScrollView>
