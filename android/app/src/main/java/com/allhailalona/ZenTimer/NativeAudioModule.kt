@@ -23,21 +23,25 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 
 class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
-    private var player: ExoPlayer? = null
+    // Dual player architecture for cross-fade
+    private var playerA: ExoPlayer? = null
+    private var playerB: ExoPlayer? = null
+    private var activePlayer: ExoPlayer? = null
+    private var standbyPlayer: ExoPlayer? = null
+    private var isPlayerAActive = true
+
     private var mediaSession: MediaSession? = null
     private val handler = Handler(Looper.getMainLooper())
-    private var fadeRunnable: Runnable? = null
+    private val fadeRunnables = mutableMapOf<ExoPlayer, Runnable>()
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
-    private var currentVolume = 1.0f
     private var trackDurationMs: Long = 0
-    private var isFading = false
-    private var fadeOutScheduled = false
+    private var crossFadeScheduled = false
 
-    // Fade settings
-    private val FADE_DURATION_MS = 5000L
-    private val FADE_STEPS = 50
+    // Cross-fade settings (20 seconds)
+    private val CROSSFADE_DURATION_MS = 20000L
+    private val FADE_STEPS = 100
 
     // Bell alarm tracking
     private val scheduledBellAlarms = mutableListOf<PendingIntent>()
@@ -69,15 +73,15 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
             val duration = intent?.getIntExtra("duration", 10000) ?: 10000
             Log.d(TAG, "Received FADE_AMBIENT broadcast, fading out over ${duration}ms")
             handler.post {
-                fadeOut(duration.toLong()) {
-                    Log.d(TAG, "Ambient fade complete, stopping player and sending TIMER_COMPLETE event")
+                fadePlayerOut(activePlayer, duration.toLong()) {
+                    Log.d(TAG, "Ambient fade complete, stopping players and sending TIMER_COMPLETE event")
 
-                    // Stop player immediately to prevent loop restart
-                    player?.let {
-                        it.stop()
-                        it.clearMediaItems()
-                        Log.d(TAG, "Player stopped after fade")
-                    }
+                    // Stop both players immediately to prevent loop restart
+                    playerA?.stop()
+                    playerA?.clearMediaItems()
+                    playerB?.stop()
+                    playerB?.clearMediaItems()
+                    Log.d(TAG, "Players stopped after fade")
 
                     // Send timer complete broadcast to trigger navigation
                     val completeIntent = Intent(BellAlarmReceiver.ACTION_TIMER_COMPLETE)
@@ -131,12 +135,12 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
                 acquireWakeLock()
 
                 val context = reactApplicationContext
+                val mediaItem = MediaItem.fromUri(Uri.parse(uri))
 
-                // Create ExoPlayer
-                player = ExoPlayer.Builder(context).build().apply {
-                    val mediaItem = MediaItem.fromUri(Uri.parse(uri))
+                // Create Player A (will be active first)
+                playerA = ExoPlayer.Builder(context).build().apply {
                     setMediaItem(mediaItem)
-                    repeatMode = Player.REPEAT_MODE_ONE
+                    repeatMode = Player.REPEAT_MODE_OFF  // Manual looping via cross-fade
                     volume = 0f
                     prepare()
 
@@ -144,37 +148,48 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
                         override fun onPlaybackStateChanged(state: Int) {
                             if (state == Player.STATE_READY && trackDurationMs == 0L) {
                                 trackDurationMs = duration
-                                Log.d(TAG, "Track ready, duration: ${trackDurationMs}ms")
-                                play()
-                                fadeIn()
-                                scheduleFadeOut()
-                            }
-                        }
+                                Log.d(TAG, "Player A ready, track duration: ${trackDurationMs}ms")
 
-                        override fun onPositionDiscontinuity(
-                            oldPosition: Player.PositionInfo,
-                            newPosition: Player.PositionInfo,
-                            reason: Int
-                        ) {
-                            // Loop occurred
-                            if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
-                                Log.d(TAG, "Loop detected - restarting fade cycle")
-                                fadeOutScheduled = false
-                                handler.post {
-                                    fadeIn()
-                                    scheduleFadeOut()
+                                // Start Player A
+                                play()
+                                fadePlayerIn(this@apply, CROSSFADE_DURATION_MS) {
+                                    Log.d(TAG, "Initial fade in complete")
                                 }
+
+                                // Schedule first cross-fade
+                                scheduleCrossFade()
                             }
                         }
                     })
                 }
 
+                // Create Player B (standby)
+                playerB = ExoPlayer.Builder(context).build().apply {
+                    setMediaItem(mediaItem)
+                    repeatMode = Player.REPEAT_MODE_OFF  // Manual looping via cross-fade
+                    volume = 0f
+                    prepare()
+
+                    addListener(object : Player.Listener {
+                        override fun onPlaybackStateChanged(state: Int) {
+                            if (state == Player.STATE_READY) {
+                                Log.d(TAG, "Player B ready (standby)")
+                            }
+                        }
+                    })
+                }
+
+                // Set initial active/standby
+                activePlayer = playerA
+                standbyPlayer = playerB
+                isPlayerAActive = true
+
                 // Create MediaSession - this is THE key to reliable background playback
-                mediaSession = MediaSession.Builder(context, player!!)
+                mediaSession = MediaSession.Builder(context, activePlayer!!)
                     .setId("ZenTimerSession")
                     .build()
 
-                Log.d(TAG, "MediaSession created - background playback enabled")
+                Log.d(TAG, "MediaSession created with dual players - background playback enabled")
 
                 // Start foreground service with notification
                 startForegroundService()
@@ -188,33 +203,80 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
         }
     }
 
-    private fun scheduleFadeOut() {
-        if (fadeOutScheduled || trackDurationMs <= 0) return
-        fadeOutScheduled = true
+    private fun scheduleCrossFade() {
+        if (crossFadeScheduled || trackDurationMs <= 0) return
+        crossFadeScheduled = true
 
-        val fadeOutDelay = trackDurationMs - FADE_DURATION_MS - 500
+        val crossFadeDelay = trackDurationMs - CROSSFADE_DURATION_MS - 500
 
-        // Guard against negative delay (tracks shorter than fade duration + buffer)
-        if (fadeOutDelay <= 0) {
-            Log.d(TAG, "Track too short for fade out scheduling (${trackDurationMs}ms), skipping")
+        // Guard against tracks too short for cross-fade
+        if (crossFadeDelay <= 0) {
+            Log.w(TAG, "Track too short for cross-fade (${trackDurationMs}ms < ${CROSSFADE_DURATION_MS + 500}ms), using simple loop")
             return
         }
 
-        Log.d(TAG, "Scheduling fade out in ${fadeOutDelay}ms")
+        Log.d(TAG, "Scheduling cross-fade in ${crossFadeDelay}ms (20s before end)")
 
         handler.postDelayed({
-            if (!isFading && player != null) {
-                Log.d(TAG, "Starting scheduled fade out")
-                fadeOut()
+            if (activePlayer != null && standbyPlayer != null) {
+                startCrossFade()
             }
-        }, fadeOutDelay)
+        }, crossFadeDelay)
+    }
+
+    private fun startCrossFade() {
+        Log.d(TAG, "Starting cross-fade: ${if (isPlayerAActive) "A→B" else "B→A"}")
+
+        // Prepare standby player from beginning
+        standbyPlayer?.seekTo(0)
+        standbyPlayer?.play()
+
+        // Fade out active player over 20 seconds
+        fadePlayerOut(activePlayer, CROSSFADE_DURATION_MS)
+
+        // Fade in standby player over 20 seconds
+        fadePlayerIn(standbyPlayer, CROSSFADE_DURATION_MS) {
+            // After cross-fade completes, swap roles
+            swapPlayers()
+            crossFadeScheduled = false
+            scheduleCrossFade()  // Schedule next cross-fade
+        }
+    }
+
+    private fun swapPlayers() {
+        isPlayerAActive = !isPlayerAActive
+        activePlayer = if (isPlayerAActive) playerA else playerB
+        standbyPlayer = if (isPlayerAActive) playerB else playerA
+
+        // Update MediaSession to point to new active player
+        mediaSession?.player = activePlayer
+
+        Log.d(TAG, "Players swapped: active=${if (isPlayerAActive) "A" else "B"}")
+    }
+
+    private fun rescheduleCrossFade() {
+        val currentPosition = activePlayer?.currentPosition ?: 0
+        val remaining = trackDurationMs - currentPosition
+        val crossFadeDelay = remaining - CROSSFADE_DURATION_MS - 500
+
+        if (crossFadeDelay > 0) {
+            crossFadeScheduled = true
+            handler.postDelayed({
+                if (activePlayer != null && standbyPlayer != null) {
+                    startCrossFade()
+                }
+            }, crossFadeDelay)
+            Log.d(TAG, "Rescheduled cross-fade in ${crossFadeDelay}ms")
+        } else {
+            Log.d(TAG, "Not enough time remaining for cross-fade (${remaining}ms)")
+        }
     }
 
     @ReactMethod
     fun stop(promise: Promise) {
         handler.post {
             try {
-                cancelFade()
+                cancelAllFades()
                 release()
                 releaseWakeLock()
                 promise.resolve(true)
@@ -228,7 +290,7 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
     fun fadeOutAndStop(durationMs: Int, promise: Promise) {
         handler.post {
             try {
-                fadeOut(durationMs.toLong()) {
+                fadePlayerOut(activePlayer, durationMs.toLong()) {
                     release()
                     releaseWakeLock()
                     promise.resolve(true)
@@ -243,7 +305,7 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
     fun fadeVolume(durationMs: Int, promise: Promise) {
         handler.post {
             try {
-                fadeOut(durationMs.toLong()) {
+                fadePlayerOut(activePlayer, durationMs.toLong()) {
                     promise.resolve(true)
                 }
             } catch (e: Exception) {
@@ -263,13 +325,17 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
                 isPausedState = true
                 pausedAtElapsedRealtime = SystemClock.elapsedRealtime()
 
-                // Pause ambient audio
-                player?.pause()
+                // Pause BOTH players
+                playerA?.pause()
+                playerB?.pause()
+
+                // Cancel all fades and cross-fade scheduling
+                cancelAllFades()
 
                 // Cancel all scheduled bell/fade alarms — they'll be rescheduled on resume
                 cancelBells()
 
-                Log.d(TAG, "Paused: ambient + bells cancelled at elapsed=${pausedAtElapsedRealtime}")
+                Log.d(TAG, "Paused: both players + all fades cancelled at elapsed=${pausedAtElapsedRealtime}")
                 promise.resolve(true)
             } catch (e: Exception) {
                 promise.reject("ERROR", e.message)
@@ -290,8 +356,11 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
                 totalPausedMs += pauseDuration
                 isPausedState = false
 
-                // Resume ambient audio
-                player?.play()
+                // Resume active player only
+                activePlayer?.play()
+
+                // Reschedule cross-fade based on remaining time
+                rescheduleCrossFade()
 
                 // Reschedule bells with adjusted times
                 rescheduleBells()
@@ -516,17 +585,19 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
             totalPausedMs = 0
             isPausedState = false
 
-            // 1. Start ambient audio - loadAndPlay handles its own handler.post and promise
+            // 1. Start ambient audio with dual players for cross-fade
             handler.post {
                 try {
-                    // Create ExoPlayer
                     cleanupPlayer()
                     acquireWakeLock()
 
-                    player = ExoPlayer.Builder(reactApplicationContext).build().apply {
-                        val mediaItem = MediaItem.fromUri(Uri.parse(ambientUri))
+                    val context = reactApplicationContext
+                    val mediaItem = MediaItem.fromUri(Uri.parse(ambientUri))
+
+                    // Create Player A (will be active first)
+                    playerA = ExoPlayer.Builder(context).build().apply {
                         setMediaItem(mediaItem)
-                        repeatMode = Player.REPEAT_MODE_ONE
+                        repeatMode = Player.REPEAT_MODE_OFF  // Manual looping via cross-fade
                         volume = 0f
                         prepare()
 
@@ -534,36 +605,48 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
                             override fun onPlaybackStateChanged(state: Int) {
                                 if (state == Player.STATE_READY && trackDurationMs == 0L) {
                                     trackDurationMs = duration
-                                    Log.d(TAG, "Track ready, duration: ${trackDurationMs}ms")
-                                    play()
-                                    fadeIn()
-                                    scheduleFadeOut()
-                                }
-                            }
+                                    Log.d(TAG, "Player A ready, track duration: ${trackDurationMs}ms")
 
-                            override fun onPositionDiscontinuity(
-                                oldPosition: Player.PositionInfo,
-                                newPosition: Player.PositionInfo,
-                                reason: Int
-                            ) {
-                                if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
-                                    Log.d(TAG, "Loop detected - restarting fade cycle")
-                                    fadeOutScheduled = false
-                                    handler.post {
-                                        fadeIn()
-                                        scheduleFadeOut()
+                                    // Start Player A
+                                    play()
+                                    fadePlayerIn(this@apply, CROSSFADE_DURATION_MS) {
+                                        Log.d(TAG, "Initial fade in complete")
                                     }
+
+                                    // Schedule first cross-fade
+                                    scheduleCrossFade()
                                 }
                             }
                         })
                     }
 
-                    mediaSession = MediaSession.Builder(reactApplicationContext, player!!)
+                    // Create Player B (standby)
+                    playerB = ExoPlayer.Builder(context).build().apply {
+                        setMediaItem(mediaItem)
+                        repeatMode = Player.REPEAT_MODE_OFF  // Manual looping via cross-fade
+                        volume = 0f
+                        prepare()
+
+                        addListener(object : Player.Listener {
+                            override fun onPlaybackStateChanged(state: Int) {
+                                if (state == Player.STATE_READY) {
+                                    Log.d(TAG, "Player B ready (standby)")
+                                }
+                            }
+                        })
+                    }
+
+                    // Set initial active/standby
+                    activePlayer = playerA
+                    standbyPlayer = playerB
+                    isPlayerAActive = true
+
+                    mediaSession = MediaSession.Builder(context, activePlayer!!)
                         .setId("ZenTimerSession")
                         .build()
 
                     startForegroundService()
-                    Log.d(TAG, "Ambient started successfully")
+                    Log.d(TAG, "Ambient started successfully with dual players")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to start ambient: ${e.message}", e)
                 }
@@ -650,62 +733,79 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
         }
     }
 
-    private fun fadeIn(onComplete: (() -> Unit)? = null) {
-        cancelFade()
-        isFading = true
+    private fun fadePlayerIn(player: ExoPlayer?, durationMs: Long, onComplete: (() -> Unit)? = null) {
+        if (player == null) {
+            onComplete?.invoke()
+            return
+        }
 
-        val stepDuration = FADE_DURATION_MS / FADE_STEPS
+        // Cancel any existing fade for this player
+        fadeRunnables[player]?.let { handler.removeCallbacks(it) }
+
+        val stepDuration = durationMs / FADE_STEPS
         var step = 0
 
-        Log.d(TAG, "Fade in starting")
+        Log.d(TAG, "Fade in starting (${durationMs}ms) - ${if (player == playerA) "Player A" else "Player B"}")
 
-        fadeRunnable = object : Runnable {
+        val runnable = object : Runnable {
             override fun run() {
-                if (step <= FADE_STEPS && player != null) {
-                    currentVolume = step.toFloat() / FADE_STEPS
-                    player?.volume = currentVolume
+                if (step <= FADE_STEPS && player.isPlaying) {
+                    val volume = step.toFloat() / FADE_STEPS
+                    player.volume = volume
                     step++
                     handler.postDelayed(this, stepDuration)
                 } else {
-                    Log.d(TAG, "Fade in complete")
-                    isFading = false
+                    Log.d(TAG, "Fade in complete - ${if (player == playerA) "Player A" else "Player B"}")
+                    fadeRunnables.remove(player)
                     onComplete?.invoke()
                 }
             }
         }
-        handler.post(fadeRunnable!!)
+
+        fadeRunnables[player] = runnable
+        handler.post(runnable)
     }
 
-    private fun fadeOut(durationMs: Long = FADE_DURATION_MS, onComplete: (() -> Unit)? = null) {
-        cancelFade()
-        isFading = true
+    private fun fadePlayerOut(player: ExoPlayer?, durationMs: Long, onComplete: (() -> Unit)? = null) {
+        if (player == null) {
+            onComplete?.invoke()
+            return
+        }
+
+        // Cancel any existing fade for this player
+        fadeRunnables[player]?.let { handler.removeCallbacks(it) }
 
         val stepDuration = durationMs / FADE_STEPS
         var step = FADE_STEPS
 
-        Log.d(TAG, "Fade out starting (${durationMs}ms)")
+        Log.d(TAG, "Fade out starting (${durationMs}ms) - ${if (player == playerA) "Player A" else "Player B"}")
 
-        fadeRunnable = object : Runnable {
+        val runnable = object : Runnable {
             override fun run() {
-                if (step >= 0 && player != null) {
-                    currentVolume = step.toFloat() / FADE_STEPS
-                    player?.volume = currentVolume
+                if (step >= 0 && player.isPlaying) {
+                    val volume = step.toFloat() / FADE_STEPS
+                    player.volume = volume
                     step--
                     handler.postDelayed(this, stepDuration)
                 } else {
-                    Log.d(TAG, "Fade out complete")
-                    isFading = false
+                    Log.d(TAG, "Fade out complete - ${if (player == playerA) "Player A" else "Player B"}")
+                    fadeRunnables.remove(player)
                     onComplete?.invoke()
                 }
             }
         }
-        handler.post(fadeRunnable!!)
+
+        fadeRunnables[player] = runnable
+        handler.post(runnable)
     }
 
-    private fun cancelFade() {
-        fadeRunnable?.let { handler.removeCallbacks(it) }
-        fadeRunnable = null
-        isFading = false
+    private fun cancelAllFades() {
+        for ((player, runnable) in fadeRunnables) {
+            handler.removeCallbacks(runnable)
+        }
+        fadeRunnables.clear()
+        crossFadeScheduled = false
+        Log.d(TAG, "All fades and cross-fade scheduling cancelled")
     }
 
     private fun acquireWakeLock() {
@@ -783,12 +883,20 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
     private fun cleanupPlayer() {
         mediaSession?.release()
         mediaSession = null
-        player?.release()
-        player = null
-        currentVolume = 1.0f
+
+        playerA?.release()
+        playerA = null
+
+        playerB?.release()
+        playerB = null
+
+        activePlayer = null
+        standbyPlayer = null
+
+        // Clear fade state
+        fadeRunnables.clear()
         trackDurationMs = 0
-        isFading = false
-        fadeOutScheduled = false
+        crossFadeScheduled = false
     }
 
     private fun release() {
@@ -799,7 +907,7 @@ class NativeAudioModule(reactContext: ReactApplicationContext) : ReactContextBas
 
     override fun invalidate() {
         handler.post {
-            cancelFade()
+            cancelAllFades()
             release()
             releaseWakeLock()
         }
