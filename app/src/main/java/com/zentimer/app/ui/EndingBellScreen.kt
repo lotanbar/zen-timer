@@ -6,7 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,17 +21,17 @@ import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -48,9 +47,6 @@ fun EndingBellScreen(
     uiState: MainUiState,
     onBellHighlighted: (BellTrack) -> Unit,
     onBellTapped: (BellTrack) -> Unit,
-    onRepeatEnabledChanged: (Boolean) -> Unit,
-    onStartBeforeChanged: (String) -> Unit,
-    onRepeatCountChanged: (String) -> Unit,
     onScreenClosed: () -> Unit,
     onSubmit: () -> Unit
 ) {
@@ -83,16 +79,24 @@ fun EndingBellScreen(
             val centeredBell by remember(realCount, listState, uiState.bellTracks) {
                 derivedStateOf { closestToCenter(uiState.bellTracks, listState, realCount) }
             }
+            var userInteracted by remember { mutableStateOf(false) }
+            var lastHandledCenterPath by remember { mutableStateOf<String?>(null) }
 
             LaunchedEffect(listState.isScrollInProgress, centeredBell?.relativePath) {
                 Log.d(
                     BELL_UI_TAG,
                     "scroll_state inProgress=${listState.isScrollInProgress} centered=${centeredBell?.relativePath}"
                 )
+                if (listState.isScrollInProgress) {
+                    userInteracted = true
+                }
                 if (!listState.isScrollInProgress) {
-                    centeredBell?.let {
-                        Log.d(BELL_UI_TAG, "center_lock_select path=${it.relativePath}")
-                        onBellHighlighted(it)
+                    centeredBell?.let { bell ->
+                        if (userInteracted && bell.relativePath != lastHandledCenterPath) {
+                            Log.d(BELL_UI_TAG, "center_lock_select path=${bell.relativePath}")
+                            onBellHighlighted(bell)
+                            lastHandledCenterPath = bell.relativePath
+                        }
                     }
                 }
             }
@@ -116,6 +120,7 @@ fun EndingBellScreen(
                                         Log.d(BELL_UI_TAG, "tap_selected_replay path=${bell.relativePath}")
                                         onBellTapped(bell)
                                     } else {
+                                        userInteracted = true
                                         val targetVirtualIndex = nearestVirtualIndexForReal(
                                             currentVirtualIndex = currentCenterVirtualIndex(listState),
                                             realCount = realCount,
@@ -145,33 +150,6 @@ fun EndingBellScreen(
                     }
                 }
             }
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-            Checkbox(
-                checked = uiState.repeatBellsEnabled,
-                onCheckedChange = onRepeatEnabledChanged
-            )
-            Text("Repeat bells", modifier = Modifier.padding(top = 12.dp))
-        }
-        OutlinedTextField(
-            value = uiState.repeatStartBeforeSeconds.toString(),
-            onValueChange = onStartBeforeChanged,
-            label = { Text("Start playing bells xxx before timer ends") },
-            singleLine = true,
-            enabled = uiState.repeatBellsEnabled,
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = uiState.repeatCount.toString(),
-            onValueChange = onRepeatCountChanged,
-            label = { Text("Play x bells in that time") },
-            singleLine = true,
-            enabled = uiState.repeatBellsEnabled,
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (uiState.repeatWarning != null) {
-            Text(uiState.repeatWarning, color = MaterialTheme.colorScheme.error)
         }
 
         Button(

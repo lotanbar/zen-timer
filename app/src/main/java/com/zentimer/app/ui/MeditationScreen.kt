@@ -5,7 +5,9 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -23,8 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 @Composable
 fun MeditationScreen(
@@ -32,31 +35,40 @@ fun MeditationScreen(
     assetTreeUri: String,
     ambienceRelativePath: String?,
     endingBellRelativePath: String?,
-    repeatBellsEnabled: Boolean,
-    repeatStartBeforeSeconds: Int,
-    repeatCount: Int,
     onSessionFinished: () -> Unit
 ) {
+    val ambienceLoopFadeMs = 5_000L
+    val ambienceSessionEndFadeMs = 10_000L
+    val bellFadeInMs = 150L
+    val bellTargetVolume = 0.7f
+
     val context = LocalContext.current
     var remaining by remember(totalSeconds) {
         mutableIntStateOf(totalSeconds.coerceAtLeast(0))
     }
-    val oneShotPlayers = remember { mutableListOf<MediaPlayer>() }
+    var isPaused by remember { androidx.compose.runtime.mutableStateOf(false) }
     var ambiencePlayer by remember { androidx.compose.runtime.mutableStateOf<MediaPlayer?>(null) }
-    var ambienceLoopJob by remember { androidx.compose.runtime.mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var ambiencePlaybackJob by remember { androidx.compose.runtime.mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val oneShotPlayers = remember { mutableListOf<MediaPlayer>() }
 
     DisposableEffect(Unit) {
         onDispose {
-            ambienceLoopJob?.cancel()
-            ambiencePlayer?.release()
+            ambiencePlaybackJob?.cancel()
             oneShotPlayers.forEach { player ->
                 try {
-                    player.stop()
+                    if (player.isPlaying) player.stop()
                 } catch (_: Exception) {
                 }
                 player.release()
             }
             oneShotPlayers.clear()
+            ambiencePlayer?.run {
+                try {
+                    if (isPlaying) stop()
+                } catch (_: Exception) {
+                }
+                release()
+            }
         }
     }
 
@@ -81,6 +93,63 @@ fun MeditationScreen(
             return if (current.isFile) current.uri else null
         }
 
+        suspend fun fadePlayer(
+            player: MediaPlayer,
+            from: Float,
+            to: Float,
+            durationMs: Long
+        ) {
+            val stepMs = 50L
+            val steps = (durationMs / stepMs).coerceAtLeast(1L).toInt()
+            repeat(steps) { step ->
+                val t = (step + 1).toFloat() / steps.toFloat()
+                val eased = (t * t * (3f - (2f * t))).coerceIn(0f, 1f)
+                val v = from + ((to - from) * eased)
+                try {
+                    player.setVolume(v, v)
+                } catch (_: Exception) {
+                    return
+                }
+                delay(stepMs)
+            }
+        }
+
+        suspend fun playOneShotAndWait(uri: Uri?) {
+            if (uri == null) return
+            try {
+                suspendCancellableCoroutine { continuation ->
+                    val player = MediaPlayer().apply {
+                        setDataSource(context, uri)
+                        isLooping = false
+                        setOnCompletionListener {
+                            try {
+                                it.release()
+                            } catch (_: Exception) {
+                            }
+                            oneShotPlayers.remove(it)
+                            if (continuation.isActive) {
+                                continuation.resume(Unit)
+                            }
+                        }
+                        prepare()
+                        setVolume(bellTargetVolume, bellTargetVolume)
+                        start()
+                    }
+                    oneShotPlayers += player
+                    launch { fadePlayer(player, from = 0.3f, to = bellTargetVolume, durationMs = bellFadeInMs) }
+                    continuation.invokeOnCancellation {
+                        try {
+                            if (player.isPlaying) player.stop()
+                        } catch (_: Exception) {
+                        }
+                        player.release()
+                        oneShotPlayers.remove(player)
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+
         fun playOneShot(uri: Uri?) {
             if (uri == null) return
             try {
@@ -95,77 +164,174 @@ fun MeditationScreen(
                         oneShotPlayers.remove(it)
                     }
                     prepare()
+                    setVolume(bellTargetVolume, bellTargetVolume)
                     start()
                 }
                 oneShotPlayers += player
+                launch { fadePlayer(player, from = 0.3f, to = bellTargetVolume, durationMs = bellFadeInMs) }
             } catch (_: Exception) {
             }
         }
 
+        fun resolveDurationMs(uri: Uri?): Long {
+            if (uri == null) return 3_000L
+            return try {
+                val player = MediaPlayer().apply {
+                    setDataSource(context, uri)
+                    prepare()
+                }
+                val d = player.duration.toLong().coerceAtLeast(1L)
+                player.release()
+                d
+            } catch (_: Exception) {
+                3_000L
+            }
+        }
+
         val ambienceUri = resolve(ambienceRelativePath)
-        if (ambienceUri != null) {
-            ambienceLoopJob = launch {
-                while (isActive && remaining > 0) {
-                    val player = try {
-                        MediaPlayer().apply {
-                            setDataSource(context, ambienceUri)
-                            isLooping = false
-                            prepare()
-                        }
+        val ambience = if (ambienceUri != null) {
+            try {
+                MediaPlayer().apply {
+                    setDataSource(context, ambienceUri)
+                    isLooping = false
+                    prepare()
+                    setVolume(0f, 0f)
+                    start()
+                }
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+        ambiencePlayer = ambience
+
+        var finalSessionFadeStarted = false
+        var ambienceFadeOutInProgress = false
+        var ambienceVolume = 0f
+        var ambienceFadeJob: kotlinx.coroutines.Job? = null
+
+        fun startAmbienceFade(target: Float, durationMs: Long) {
+            val active = ambiencePlayer ?: return
+            ambienceFadeJob?.cancel()
+            val from = ambienceVolume
+            ambienceFadeJob = launch {
+                val stepMs = 50L
+                val steps = (durationMs / stepMs).coerceAtLeast(1L).toInt()
+                repeat(steps) { step ->
+                    val t = (step + 1).toFloat() / steps.toFloat()
+                    val eased = (t * t * (3f - (2f * t))).coerceIn(0f, 1f)
+                    val v = from + ((target - from) * eased)
+                    ambienceVolume = v
+                    try {
+                        active.setVolume(v, v)
                     } catch (_: Exception) {
-                        null
+                        return@launch
+                    }
+                    delay(stepMs)
+                }
+                ambienceVolume = target
+            }
+        }
+
+        if (ambience != null && totalSeconds > 0) {
+            ambiencePlaybackJob = launch {
+                while (remaining > 0) {
+                    val player = if (ambiencePlayer != null) {
+                        ambiencePlayer
+                    } else {
+                        try {
+                            if (ambienceUri == null) {
+                                null
+                            } else {
+                                MediaPlayer().apply {
+                                    setDataSource(context, ambienceUri)
+                                    isLooping = false
+                                    prepare()
+                                    setVolume(0f, 0f)
+                                    start()
+                                }
+                            }
+                        } catch (_: Exception) {
+                            null
+                        }
                     } ?: break
 
-                    ambiencePlayer?.release()
                     ambiencePlayer = player
-                    // Fade in 5 seconds.
-                    repeat(10) { step ->
-                        player.setVolume((step + 1) / 10f, (step + 1) / 10f)
-                        delay(500)
-                    }
-                    player.start()
+                    ambienceVolume = 0f
+                    ambienceFadeOutInProgress = false
+                    startAmbienceFade(target = 1f, durationMs = ambienceLoopFadeMs)
 
-                    val dur = player.duration.coerceAtLeast(10000)
-                    val untilFadeOut = (dur - 5000).coerceAtLeast(1000).toLong()
-                    delay(untilFadeOut)
-                    // Fade out 5 seconds before loop edge.
-                    repeat(10) { step ->
-                        val v = ((9 - step).coerceAtLeast(0)) / 10f
-                        player.setVolume(v, v)
-                        delay(500)
+                    val durationMs = player.duration.coerceAtLeast(ambienceLoopFadeMs.toInt())
+                    val loopFadeStartMs = (durationMs - ambienceLoopFadeMs.toInt()).coerceAtLeast(0)
+                    if (!finalSessionFadeStarted) {
+                        launch {
+                            delay(loopFadeStartMs.toLong())
+                            if (!finalSessionFadeStarted && !ambienceFadeOutInProgress) {
+                                ambienceFadeOutInProgress = true
+                                startAmbienceFade(target = 0f, durationMs = ambienceLoopFadeMs)
+                            }
+                        }
                     }
+
+                    delay(durationMs.toLong())
                     try {
                         player.stop()
                     } catch (_: Exception) {
                     }
                     player.release()
                     ambiencePlayer = null
+
+                    // If session fade-out already started, do not restart ambience. Wait remaining time.
+                    if (finalSessionFadeStarted) {
+                        while (remaining > 0) {
+                            delay(250)
+                        }
+                        break
+                    }
                 }
             }
         }
 
-        val endingBellUri = resolve(endingBellRelativePath)
-        if (repeatBellsEnabled && endingBellUri != null && totalSeconds > 1) {
-            val startBefore = repeatStartBeforeSeconds.coerceAtLeast(1)
-            val count = repeatCount.coerceAtLeast(1)
-            val sessionStartBefore = startBefore.coerceAtMost(totalSeconds)
-            val intervalMs = ((sessionStartBefore * 1000L) / count).coerceAtLeast(500L)
-            val firstDelay = ((totalSeconds - sessionStartBefore) * 1000L).coerceAtLeast(0L)
-            launch {
-                delay(firstDelay)
-                repeat(count) { idx ->
-                    if (remaining > 0) playOneShot(endingBellUri)
-                    if (idx < count - 1) delay(intervalMs)
-                }
-            }
-        }
+        val endingUri = resolve(endingBellRelativePath)
+        val singleBellDurationMs = resolveDurationMs(endingUri)
+        val canPlayFourBeforeEnd = totalSeconds >= 10 * 60
+        val sequenceDurationMs = singleBellDurationMs * 4L
+        val sequenceLeadSeconds = ((sequenceDurationMs + 999L) / 1_000L).toInt()
+        var sequenceStarted = false
 
         while (remaining > 0) {
+            if (canPlayFourBeforeEnd && !sequenceStarted && remaining <= sequenceLeadSeconds) {
+                sequenceStarted = true
+                launch {
+                    repeat(4) {
+                        playOneShotAndWait(endingUri)
+                    }
+                }
+            }
+            if (isPaused) {
+                delay(200)
+                continue
+            }
             delay(1000)
-            remaining -= 1
+            if (!isPaused) remaining -= 1
         }
 
-        ambienceLoopJob?.cancel()
+        // At timer end: if session was too short for 4 bells, play a single ending bell.
+        finalSessionFadeStarted = true
+        if (!ambienceFadeOutInProgress) {
+            ambienceFadeOutInProgress = true
+            startAmbienceFade(target = 0f, durationMs = ambienceSessionEndFadeMs)
+        }
+        if (!canPlayFourBeforeEnd) {
+            playOneShot(endingUri)
+        }
+
+        // Keep meditation screen visible briefly, then return to main.
+        delay(10_000L)
+
+        ambienceFadeJob?.cancel()
+        ambiencePlaybackJob?.cancel()
         ambiencePlayer?.run {
             try {
                 stop()
@@ -175,9 +341,6 @@ fun MeditationScreen(
         }
         ambiencePlayer = null
 
-        // End bell + 15s tail then return.
-        playOneShot(resolve(endingBellRelativePath))
-        delay(15000)
         onSessionFinished()
     }
 
@@ -198,8 +361,55 @@ fun MeditationScreen(
             style = MaterialTheme.typography.displayLarge,
             fontWeight = FontWeight.Bold
         )
-        Button(onClick = onSessionFinished) {
-            Text("Return to setup")
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    isPaused = !isPaused
+                    ambiencePlayer?.let { player ->
+                        try {
+                            if (isPaused) {
+                                if (player.isPlaying) player.pause()
+                            } else {
+                                player.start()
+                            }
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+            ) {
+                Text(if (isPaused) "Resume" else "Pause")
+            }
+            Button(
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    oneShotPlayers.forEach { player ->
+                        try {
+                            if (player.isPlaying) player.stop()
+                        } catch (_: Exception) {
+                        }
+                        player.release()
+                    }
+                    oneShotPlayers.clear()
+                    ambiencePlaybackJob?.cancel()
+                    ambiencePlayer?.run {
+                        try {
+                            if (isPlaying) stop()
+                        } catch (_: Exception) {
+                        }
+                        release()
+                    }
+                    ambiencePlayer = null
+                    onSessionFinished()
+                }
+            ) {
+                Text("Stop")
+            }
         }
     }
 }

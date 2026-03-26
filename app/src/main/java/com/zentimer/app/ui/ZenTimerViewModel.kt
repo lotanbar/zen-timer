@@ -1,6 +1,7 @@
 package com.zentimer.app.ui
 
 import android.app.Application
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.net.Uri
 import android.util.Log
@@ -9,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,7 +35,8 @@ data class AmbienceTrack(
 data class BellTrack(
     val relativePath: String,
     val title: String,
-    val thumbnailLabel: String
+    val thumbnailLabel: String,
+    val durationSeconds: Float? = null
 )
 
 data class MainUiState(
@@ -50,10 +53,6 @@ data class MainUiState(
     val bellTracks: List<BellTrack> = emptyList(),
     val selectedBellPath: String? = null,
     val bellPreviewPlayingPath: String? = null,
-    val repeatBellsEnabled: Boolean = false,
-    val repeatStartBeforeSeconds: Int = 30,
-    val repeatCount: Int = 2,
-    val repeatWarning: String? = null,
     val selectedAmbience: String? = null,
     val selectedBell: String? = null
 ) {
@@ -77,6 +76,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     private var previewPlayer: MediaPlayer? = null
     private var bellPreviewDelayJob: Job? = null
     private var bellPreviewPlayJob: Job? = null
+    private var bellPreviewFadeJob: Job? = null
 
     init {
         val savedDuration = prefs.getInt(KEY_DURATION_SECONDS, 0)
@@ -196,29 +196,6 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         startBellPreview(track.relativePath)
     }
 
-    fun setRepeatBellsEnabled(enabled: Boolean) {
-        _uiState.update { state ->
-            val updated = state.copy(repeatBellsEnabled = enabled)
-            updated.copy(repeatWarning = computeRepeatWarning(updated))
-        }
-    }
-
-    fun setRepeatStartBeforeSeconds(value: String) {
-        val parsed = value.toIntOrNull()?.coerceAtLeast(1) ?: 1
-        _uiState.update { state ->
-            val updated = state.copy(repeatStartBeforeSeconds = parsed)
-            updated.copy(repeatWarning = computeRepeatWarning(updated))
-        }
-    }
-
-    fun setRepeatCount(value: String) {
-        val parsed = value.toIntOrNull()?.coerceAtLeast(1) ?: 1
-        _uiState.update { state ->
-            val updated = state.copy(repeatCount = parsed)
-            updated.copy(repeatWarning = computeRepeatWarning(updated))
-        }
-    }
-
     fun submitBellSelection(): Boolean {
         val selectedPath = _uiState.value.selectedBellPath ?: return false
         Log.d(BELL_VM_TAG, "submitBellSelection path=$selectedPath")
@@ -242,6 +219,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
                 assetBannerMessage = null
             )
         }
+        loadBellDurations(uriString)
         validateAssets(uriString)
     }
 
@@ -334,13 +312,44 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
             val selectedTrack = tracks.firstOrNull { it.relativePath == savedSelection }
 
             _uiState.update { state ->
-                val updated = state.copy(
+                state.copy(
                     bellTracks = tracks,
                     selectedBellPath = selectedTrack?.relativePath ?: state.selectedBellPath,
                     selectedBell = selectedTrack?.title ?: state.selectedBell
                 )
-                updated.copy(repeatWarning = computeRepeatWarning(updated))
             }
+
+            val assetUri = _uiState.value.assetPath
+            if (assetUri.isNotBlank()) {
+                loadBellDurations(assetUri)
+            }
+        }
+    }
+
+    private fun loadBellDurations(treeUriString: String) {
+        if (bellCatalog.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val hydrated = bellCatalog.map { bell ->
+                val uri = resolveTrackUri(treeUriString, bell.relativePath)
+                val sec = if (uri != null) extractDurationSeconds(uri) else null
+                bell.copy(durationSeconds = sec)
+            }
+            bellCatalog = hydrated
+            _uiState.update { state ->
+                state.copy(bellTracks = hydrated)
+            }
+        }
+    }
+
+    private fun extractDurationSeconds(uri: Uri): Float? {
+        return try {
+            val mmr = MediaMetadataRetriever()
+            mmr.setDataSource(app, uri)
+            val ms = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+            mmr.release()
+            ms?.let { it / 1000f }
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -379,6 +388,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         }
 
         bellPreviewPlayJob?.cancel()
+        bellPreviewFadeJob?.cancel()
         Log.d(BELL_VM_TAG, "startBellPreview begin path=$relativePath")
         bellPreviewPlayJob = viewModelScope.launch(Dispatchers.IO) {
             val uri = resolveTrackUri(treeUriString, relativePath) ?: return@launch
@@ -388,7 +398,22 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
                     setDataSource(app, uri)
                     isLooping = false
                     prepare()
+                    setVolume(0f, 0f)
                     start()
+                }
+                bellPreviewFadeJob = viewModelScope.launch(Dispatchers.IO) {
+                    val player = previewPlayer ?: return@launch
+                    val steps = 40 // 2 seconds / 50ms
+                    repeat(steps) { step ->
+                        val t = (step + 1).toFloat() / steps.toFloat()
+                        val eased = (t * t * (3f - (2f * t))).coerceIn(0f, 1f)
+                        try {
+                            player.setVolume(eased, eased)
+                        } catch (_: Exception) {
+                            return@launch
+                        }
+                        delay(50)
+                    }
                 }
                 Log.d(BELL_VM_TAG, "startBellPreview started path=$relativePath")
                 _uiState.update { it.copy(bellPreviewPlayingPath = relativePath, previewPlayingPath = null) }
@@ -417,6 +442,8 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         bellPreviewDelayJob = null
         bellPreviewPlayJob?.cancel()
         bellPreviewPlayJob = null
+        bellPreviewFadeJob?.cancel()
+        bellPreviewFadeJob = null
         previewPlayer?.run {
             try {
                 if (isPlaying) stop()
@@ -426,17 +453,6 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         }
         previewPlayer = null
         _uiState.update { it.copy(bellPreviewPlayingPath = null) }
-    }
-
-    private fun computeRepeatWarning(state: MainUiState): String? {
-        if (!state.repeatBellsEnabled) return null
-        val interval = state.repeatStartBeforeSeconds.toFloat() / state.repeatCount.coerceAtLeast(1)
-        val bellLengthSeconds = 3.0f
-        return if (interval > bellLengthSeconds) {
-            "play less bells to avoid cutting previous bells"
-        } else {
-            null
-        }
     }
 
     private fun resolveTrackUri(treeUriString: String, relativePath: String): Uri? {
@@ -480,6 +496,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         super.onCleared()
         bellPreviewDelayJob?.cancel()
         bellPreviewPlayJob?.cancel()
+        bellPreviewFadeJob?.cancel()
         previewPlayer?.release()
         previewPlayer = null
     }

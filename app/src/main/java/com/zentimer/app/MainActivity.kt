@@ -92,9 +92,6 @@ class MainActivity : ComponentActivity() {
                                 uiState = uiState,
                                 onBellHighlighted = viewModel::onBellHighlighted,
                                 onBellTapped = viewModel::onBellTapped,
-                                onRepeatEnabledChanged = viewModel::setRepeatBellsEnabled,
-                                onStartBeforeChanged = viewModel::setRepeatStartBeforeSeconds,
-                                onRepeatCountChanged = viewModel::setRepeatCount,
                                 onScreenClosed = viewModel::onBellScreenClosed,
                                 onSubmit = {
                                     if (viewModel.submitBellSelection()) {
@@ -109,9 +106,6 @@ class MainActivity : ComponentActivity() {
                                 assetTreeUri = uiState.assetPath,
                                 ambienceRelativePath = uiState.selectedAmbiencePath,
                                 endingBellRelativePath = uiState.selectedBellPath,
-                                repeatBellsEnabled = uiState.repeatBellsEnabled,
-                                repeatStartBeforeSeconds = uiState.repeatStartBeforeSeconds,
-                                repeatCount = uiState.repeatCount,
                                 onSessionFinished = { navController.popBackStack("main", false) }
                             )
                         }
