@@ -1,9 +1,12 @@
 package com.zentimer.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -31,6 +34,20 @@ class MainActivity : ComponentActivity() {
                     val navController = rememberNavController()
                     val viewModel: ZenTimerViewModel = viewModel()
                     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+                    val treePickerLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.OpenDocumentTree()
+                    ) { uri ->
+                        if (uri != null) {
+                            val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                            try {
+                                contentResolver.takePersistableUriPermission(uri, takeFlags)
+                            } catch (_: SecurityException) {
+                                // Validation step will surface permission/path errors in the UI banner.
+                            }
+                            viewModel.setAssetDirectory(uri.toString())
+                        }
+                    }
 
                     NavHost(
                         navController = navController,
@@ -42,8 +59,7 @@ class MainActivity : ComponentActivity() {
                                 onPickTime = viewModel::setDemoTimeConfigured,
                                 onPickAmbience = viewModel::setDemoAmbienceConfigured,
                                 onPickBell = viewModel::setDemoBellConfigured,
-                                onSetAssetPath = viewModel::setAssetPath,
-                                onToggleAssetValidation = viewModel::toggleAssetValidation,
+                                onPickAssetsPath = { treePickerLauncher.launch(null) },
                                 onStartMeditation = { navController.navigate("meditation") }
                             )
                         }

@@ -2,21 +2,18 @@ package com.zentimer.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -27,8 +24,7 @@ fun MainScreen(
     onPickTime: () -> Unit,
     onPickAmbience: () -> Unit,
     onPickBell: () -> Unit,
-    onSetAssetPath: (String) -> Unit,
-    onToggleAssetValidation: () -> Unit,
+    onPickAssetsPath: () -> Unit,
     onStartMeditation: () -> Unit
 ) {
     Column(
@@ -60,23 +56,18 @@ fun MainScreen(
 
         Spacer(Modifier.height(8.dp))
         Text("Configure assets", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-        OutlinedTextField(
-            modifier = Modifier.fillMaxWidth(),
-            value = uiState.assetPath,
-            onValueChange = onSetAssetPath,
-            label = { Text("Assets path") },
-            placeholder = { Text("Example: C:\\assets\\zen-timer-assets") },
-            singleLine = true
+        Button(onClick = onPickAssetsPath) {
+            Text("Pick assets folder")
+        }
+        Text(
+            text = if (uiState.assetPath.isBlank()) "No assets folder selected." else "Selected: ${uiState.assetPath}",
+            style = MaterialTheme.typography.bodySmall
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Simulate: assets package is valid")
-            Switch(
-                checked = uiState.isAssetsValid,
-                onCheckedChange = { onToggleAssetValidation() }
+        if (uiState.isValidatingAssets) {
+            AssistChip(
+                onClick = {},
+                enabled = false,
+                label = { Text("Validating selected package...") }
             )
         }
 
@@ -100,6 +91,17 @@ fun MainScreen(
         }
 
         Spacer(Modifier.weight(1f))
+        if (uiState.assetBannerMessage != null) {
+            Text(
+                text = uiState.assetBannerMessage,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        Text(
+            text = "Download from xxx",
+            style = MaterialTheme.typography.bodyMedium
+        )
         Button(
             modifier = Modifier.fillMaxWidth(),
             onClick = onStartMeditation,
