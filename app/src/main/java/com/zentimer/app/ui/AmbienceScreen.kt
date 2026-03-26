@@ -22,6 +22,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,11 +38,15 @@ fun AmbienceScreen(
     onTrackTapped: (AmbienceTrack) -> Unit,
     onShuffle: () -> Unit,
     onRefreshConfirmed: () -> Unit,
+    onScreenClosed: () -> Unit,
     onSubmit: () -> Unit
 ) {
     var showRefreshConfirm by remember { mutableStateOf(false) }
     val visibleTracks = uiState.ambienceTracks.filter {
         uiState.ambienceSearchQuery.isBlank() || it.title.contains(uiState.ambienceSearchQuery, ignoreCase = true)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onScreenClosed() }
     }
 
     Column(

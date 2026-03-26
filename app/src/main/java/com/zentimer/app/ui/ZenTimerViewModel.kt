@@ -7,6 +7,8 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,8 +21,15 @@ private const val PREFS_NAME = "zen_timer_prefs"
 private const val KEY_ASSET_TREE_URI = "asset_tree_uri"
 private const val KEY_DURATION_SECONDS = "duration_seconds"
 private const val KEY_SELECTED_AMBIENCE_PATH = "selected_ambience_path"
+private const val KEY_SELECTED_BELL_PATH = "selected_bell_path"
 
 data class AmbienceTrack(
+    val relativePath: String,
+    val title: String,
+    val thumbnailLabel: String
+)
+
+data class BellTrack(
     val relativePath: String,
     val title: String,
     val thumbnailLabel: String
@@ -37,6 +46,13 @@ data class MainUiState(
     val ambienceSearchQuery: String = "",
     val selectedAmbiencePath: String? = null,
     val previewPlayingPath: String? = null,
+    val bellTracks: List<BellTrack> = emptyList(),
+    val selectedBellPath: String? = null,
+    val bellPreviewPlayingPath: String? = null,
+    val repeatBellsEnabled: Boolean = false,
+    val repeatStartBeforeSeconds: Int = 30,
+    val repeatCount: Int = 2,
+    val repeatWarning: String? = null,
     val selectedAmbience: String? = null,
     val selectedBell: String? = null
 ) {
@@ -56,7 +72,9 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
     private var ambienceCatalog: List<AmbienceTrack> = emptyList()
+    private var bellCatalog: List<BellTrack> = emptyList()
     private var previewPlayer: MediaPlayer? = null
+    private var bellPreviewDelayJob: Job? = null
 
     init {
         val savedDuration = prefs.getInt(KEY_DURATION_SECONDS, 0)
@@ -89,6 +107,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
             validateAssets(savedUri)
         }
         initializeAmbienceCatalog()
+        initializeBellCatalog()
     }
 
     fun submitDuration(hours: Int, minutes: Int, seconds: Int): Boolean {
@@ -139,11 +158,75 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     fun submitAmbienceSelection(): Boolean {
         val selectedPath = _uiState.value.selectedAmbiencePath ?: return false
         prefs.edit().putString(KEY_SELECTED_AMBIENCE_PATH, selectedPath).apply()
+        stopPreview()
         return true
+    }
+
+    fun onAmbienceScreenClosed() {
+        stopPreview()
     }
 
     fun setDemoBellConfigured() {
         _uiState.update { it.copy(selectedBell = "Tibetan Bowl") }
+    }
+
+    fun onBellHighlighted(track: BellTrack) {
+        _uiState.update {
+            it.copy(
+                selectedBellPath = track.relativePath,
+                selectedBell = track.title
+            )
+        }
+        bellPreviewDelayJob?.cancel()
+        bellPreviewDelayJob = viewModelScope.launch {
+            delay(1000)
+            startBellPreview(track.relativePath)
+        }
+    }
+
+    fun onBellTapped(track: BellTrack) {
+        _uiState.update {
+            it.copy(
+                selectedBellPath = track.relativePath,
+                selectedBell = track.title
+            )
+        }
+        bellPreviewDelayJob?.cancel()
+        startBellPreview(track.relativePath)
+    }
+
+    fun setRepeatBellsEnabled(enabled: Boolean) {
+        _uiState.update { state ->
+            val updated = state.copy(repeatBellsEnabled = enabled)
+            updated.copy(repeatWarning = computeRepeatWarning(updated))
+        }
+    }
+
+    fun setRepeatStartBeforeSeconds(value: String) {
+        val parsed = value.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        _uiState.update { state ->
+            val updated = state.copy(repeatStartBeforeSeconds = parsed)
+            updated.copy(repeatWarning = computeRepeatWarning(updated))
+        }
+    }
+
+    fun setRepeatCount(value: String) {
+        val parsed = value.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        _uiState.update { state ->
+            val updated = state.copy(repeatCount = parsed)
+            updated.copy(repeatWarning = computeRepeatWarning(updated))
+        }
+    }
+
+    fun submitBellSelection(): Boolean {
+        val selectedPath = _uiState.value.selectedBellPath ?: return false
+        prefs.edit().putString(KEY_SELECTED_BELL_PATH, selectedPath).apply()
+        stopBellPreview()
+        return true
+    }
+
+    fun onBellScreenClosed() {
+        stopBellPreview()
     }
 
     fun setAssetDirectory(uriString: String) {
@@ -222,6 +305,42 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    private fun initializeBellCatalog() {
+        viewModelScope.launch {
+            val tracks = withContext(Dispatchers.IO) {
+                app.assets.open("expected_assets_manifest.txt")
+                    .bufferedReader()
+                    .useLines { lines ->
+                        lines
+                            .map { it.trim() }
+                            .filter { it.startsWith("bells/bells_audio/") && it.endsWith(".mp3", ignoreCase = true) }
+                            .distinct()
+                            .map { path ->
+                                val fileName = path.substringAfterLast('/').substringBeforeLast('.')
+                                BellTrack(
+                                    relativePath = path,
+                                    title = prettifyTrackName(fileName),
+                                    thumbnailLabel = thumbnailFromName(fileName)
+                                )
+                            }
+                            .toList()
+                    }
+            }
+            bellCatalog = tracks
+            val savedSelection = prefs.getString(KEY_SELECTED_BELL_PATH, null)
+            val selectedTrack = tracks.firstOrNull { it.relativePath == savedSelection }
+
+            _uiState.update { state ->
+                val updated = state.copy(
+                    bellTracks = tracks,
+                    selectedBellPath = selectedTrack?.relativePath ?: state.selectedBellPath,
+                    selectedBell = selectedTrack?.title ?: state.selectedBell
+                )
+                updated.copy(repeatWarning = computeRepeatWarning(updated))
+            }
+        }
+    }
+
     private fun filteredAmbienceTracks(state: MainUiState): List<AmbienceTrack> {
         val q = state.ambienceSearchQuery.trim()
         if (q.isBlank()) return state.ambienceTracks
@@ -242,9 +361,30 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
                     prepare()
                     start()
                 }
-                _uiState.update { it.copy(previewPlayingPath = relativePath) }
+                _uiState.update { it.copy(previewPlayingPath = relativePath, bellPreviewPlayingPath = null) }
             } catch (_: Exception) {
                 _uiState.update { it.copy(previewPlayingPath = null) }
+            }
+        }
+    }
+
+    private fun startBellPreview(relativePath: String) {
+        val treeUriString = _uiState.value.assetPath
+        if (treeUriString.isBlank()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val uri = resolveTrackUri(treeUriString, relativePath) ?: return@launch
+            try {
+                previewPlayer?.release()
+                previewPlayer = MediaPlayer().apply {
+                    setDataSource(app, uri)
+                    isLooping = false
+                    prepare()
+                    start()
+                }
+                _uiState.update { it.copy(bellPreviewPlayingPath = relativePath, previewPlayingPath = null) }
+            } catch (_: Exception) {
+                _uiState.update { it.copy(bellPreviewPlayingPath = null) }
             }
         }
     }
@@ -259,6 +399,31 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         }
         previewPlayer = null
         _uiState.update { it.copy(previewPlayingPath = null) }
+    }
+
+    private fun stopBellPreview() {
+        bellPreviewDelayJob?.cancel()
+        bellPreviewDelayJob = null
+        previewPlayer?.run {
+            try {
+                if (isPlaying) stop()
+            } catch (_: Exception) {
+            }
+            release()
+        }
+        previewPlayer = null
+        _uiState.update { it.copy(bellPreviewPlayingPath = null) }
+    }
+
+    private fun computeRepeatWarning(state: MainUiState): String? {
+        if (!state.repeatBellsEnabled) return null
+        val interval = state.repeatStartBeforeSeconds.toFloat() / state.repeatCount.coerceAtLeast(1)
+        val bellLengthSeconds = 3.0f
+        return if (interval > bellLengthSeconds) {
+            "play less bells to avoid cutting previous bells"
+        } else {
+            null
+        }
     }
 
     private fun resolveTrackUri(treeUriString: String, relativePath: String): Uri? {
@@ -300,6 +465,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
 
     override fun onCleared() {
         super.onCleared()
+        bellPreviewDelayJob?.cancel()
         previewPlayer?.release()
         previewPlayer = null
     }

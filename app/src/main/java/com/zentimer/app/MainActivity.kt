@@ -18,6 +18,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.zentimer.app.ui.AmbienceScreen
+import com.zentimer.app.ui.EndingBellScreen
 import com.zentimer.app.ui.MainScreen
 import com.zentimer.app.ui.MeditationScreen
 import com.zentimer.app.ui.TimePickerScreen
@@ -59,7 +60,7 @@ class MainActivity : ComponentActivity() {
                                 uiState = uiState,
                                 onPickTime = { navController.navigate("time_picker") },
                                 onPickAmbience = { navController.navigate("ambience_picker") },
-                                onPickBell = viewModel::setDemoBellConfigured,
+                                onPickBell = { navController.navigate("ending_bell_picker") },
                                 onPickAssetsPath = { treePickerLauncher.launch(null) },
                                 onStartMeditation = { navController.navigate("meditation") }
                             )
@@ -71,6 +72,7 @@ class MainActivity : ComponentActivity() {
                                 onTrackTapped = viewModel::onAmbienceTileTapped,
                                 onShuffle = viewModel::shuffleAmbienceSelection,
                                 onRefreshConfirmed = viewModel::refreshAmbienceTracks,
+                                onScreenClosed = viewModel::onAmbienceScreenClosed,
                                 onSubmit = {
                                     if (viewModel.submitAmbienceSelection()) {
                                         navController.popBackStack()
@@ -83,6 +85,22 @@ class MainActivity : ComponentActivity() {
                                 initialTotalSeconds = uiState.durationSeconds,
                                 onSubmitDuration = viewModel::submitDuration,
                                 onClose = { navController.popBackStack() }
+                            )
+                        }
+                        composable("ending_bell_picker") {
+                            EndingBellScreen(
+                                uiState = uiState,
+                                onBellHighlighted = viewModel::onBellHighlighted,
+                                onBellTapped = viewModel::onBellTapped,
+                                onRepeatEnabledChanged = viewModel::setRepeatBellsEnabled,
+                                onStartBeforeChanged = viewModel::setRepeatStartBeforeSeconds,
+                                onRepeatCountChanged = viewModel::setRepeatCount,
+                                onScreenClosed = viewModel::onBellScreenClosed,
+                                onSubmit = {
+                                    if (viewModel.submitBellSelection()) {
+                                        navController.popBackStack()
+                                    }
+                                }
                             )
                         }
                         composable("meditation") {
