@@ -25,30 +25,34 @@ class AssetPackageValidator(
     }
 
     suspend fun validate(treeUri: Uri): AssetValidationResult = withContext(Dispatchers.IO) {
-        val root = try {
-            DocumentFile.fromTreeUri(application, treeUri)
-        } catch (_: SecurityException) {
-            null
-        }
+        try {
+            val root = try {
+                DocumentFile.fromTreeUri(application, treeUri)
+            } catch (_: Exception) {
+                null
+            }
 
-        if (root == null || !root.exists() || !root.isDirectory) {
-            return@withContext AssetValidationResult.Invalid(
-                "Selected assets path is unavailable."
-            )
-        }
+            if (root == null || !root.exists() || !root.isDirectory) {
+                return@withContext AssetValidationResult.Invalid(
+                    "Selected assets path is unavailable."
+                )
+            }
 
-        val actualFiles = mutableSetOf<String>()
-        val collectResult = collectRelativeFiles(root, "", actualFiles)
-        if (collectResult != null) {
-            return@withContext collectResult
-        }
+            val actualFiles = mutableSetOf<String>()
+            val collectResult = collectRelativeFiles(root, "", actualFiles)
+            if (collectResult != null) {
+                return@withContext collectResult
+            }
 
-        if (actualFiles == expectedFiles) {
-            AssetValidationResult.Valid
-        } else {
-            AssetValidationResult.Invalid(
-                "Selected assets do not match expected package exactly (${actualFiles.size}/${expectedFiles.size} files)."
-            )
+            if (actualFiles == expectedFiles) {
+                AssetValidationResult.Valid
+            } else {
+                AssetValidationResult.Invalid(
+                    "Selected assets do not match expected package exactly (${actualFiles.size}/${expectedFiles.size} files)."
+                )
+            }
+        } catch (_: Exception) {
+            AssetValidationResult.Invalid("Unable to scan selected assets folder.")
         }
     }
 
@@ -59,7 +63,7 @@ class AssetPackageValidator(
     ): AssetValidationResult.Invalid? {
         val children = try {
             node.listFiles()
-        } catch (_: SecurityException) {
+        } catch (_: Exception) {
             return AssetValidationResult.Invalid("Missing permission to read selected assets folder.")
         }
 

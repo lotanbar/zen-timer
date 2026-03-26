@@ -19,6 +19,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.zentimer.app.ui.MainScreen
 import com.zentimer.app.ui.MeditationScreen
+import com.zentimer.app.ui.TimePickerScreen
 import com.zentimer.app.ui.ZenTimerViewModel
 
 class MainActivity : ComponentActivity() {
@@ -38,11 +39,10 @@ class MainActivity : ComponentActivity() {
                         contract = ActivityResultContracts.OpenDocumentTree()
                     ) { uri ->
                         if (uri != null) {
-                            val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                            val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
                             try {
                                 contentResolver.takePersistableUriPermission(uri, takeFlags)
-                            } catch (_: SecurityException) {
+                            } catch (_: Exception) {
                                 // Validation step will surface permission/path errors in the UI banner.
                             }
                             viewModel.setAssetDirectory(uri.toString())
@@ -56,11 +56,18 @@ class MainActivity : ComponentActivity() {
                         composable("main") {
                             MainScreen(
                                 uiState = uiState,
-                                onPickTime = viewModel::setDemoTimeConfigured,
+                                onPickTime = { navController.navigate("time_picker") },
                                 onPickAmbience = viewModel::setDemoAmbienceConfigured,
                                 onPickBell = viewModel::setDemoBellConfigured,
                                 onPickAssetsPath = { treePickerLauncher.launch(null) },
                                 onStartMeditation = { navController.navigate("meditation") }
+                            )
+                        }
+                        composable("time_picker") {
+                            TimePickerScreen(
+                                initialTotalSeconds = uiState.durationSeconds,
+                                onSubmitDuration = viewModel::submitDuration,
+                                onClose = { navController.popBackStack() }
                             )
                         }
                         composable("meditation") {

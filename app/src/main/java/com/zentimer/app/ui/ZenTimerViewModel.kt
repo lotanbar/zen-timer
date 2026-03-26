@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 
 private const val PREFS_NAME = "zen_timer_prefs"
 private const val KEY_ASSET_TREE_URI = "asset_tree_uri"
+private const val KEY_DURATION_SECONDS = "duration_seconds"
 
 data class MainUiState(
     val assetPath: String = "",
@@ -39,6 +40,16 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     init {
+        val savedDuration = prefs.getInt(KEY_DURATION_SECONDS, 0)
+        if (savedDuration > 0) {
+            _uiState.update {
+                it.copy(
+                    durationSeconds = savedDuration,
+                    isTimeConfigured = true
+                )
+            }
+        }
+
         val savedUri = prefs.getString(KEY_ASSET_TREE_URI, null)
         if (savedUri.isNullOrBlank()) {
             _uiState.update {
@@ -60,13 +71,18 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun setDemoTimeConfigured() {
+    fun submitDuration(hours: Int, minutes: Int, seconds: Int): Boolean {
+        val total = (hours * 3600) + (minutes * 60) + seconds
+        if (total <= 0) return false
+
+        prefs.edit().putInt(KEY_DURATION_SECONDS, total).apply()
         _uiState.update {
             it.copy(
-                durationSeconds = 10 * 60,
+                durationSeconds = total,
                 isTimeConfigured = true
             )
         }
+        return true
     }
 
     fun setDemoAmbienceConfigured() {

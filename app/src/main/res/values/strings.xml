@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Zen Timer</string>
+    <string name="assets_download_label">Download content here</string>
+    <string name="assets_download_url">https://www.dropbox.com/scl/fo/qunwsdm1bhjtkunf1omh6/ADZTcthjMsX_uqIvekTqehk?rlkey=7b3hgva0fyankd8rn65x5asgi&amp;st=2pev5vl3&amp;dl=0</string>
 </resources>

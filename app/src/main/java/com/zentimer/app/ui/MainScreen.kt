@@ -14,9 +14,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.unit.dp
+import com.zentimer.app.R
 
 @Composable
 fun MainScreen(
@@ -27,6 +31,8 @@ fun MainScreen(
     onPickAssetsPath: () -> Unit,
     onStartMeditation: () -> Unit
 ) {
+    val uriHandler = LocalUriHandler.current
+    val downloadUrl = stringResource(R.string.assets_download_url)
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -37,7 +43,7 @@ fun MainScreen(
 
         SelectionCard(
             title = "Time",
-            value = if (uiState.isTimeConfigured) "${uiState.durationSeconds / 60} minutes selected" else "Not selected",
+            value = if (uiState.isTimeConfigured) formatDuration(uiState.durationSeconds) else "Not selected",
             actionLabel = "Pick duration",
             onAction = onPickTime
         )
@@ -99,8 +105,12 @@ fun MainScreen(
             )
         }
         Text(
-            text = "Download from xxx",
-            style = MaterialTheme.typography.bodyMedium
+            text = stringResource(R.string.assets_download_label),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.clickable {
+                uriHandler.openUri(downloadUrl)
+            }
         )
         Button(
             modifier = Modifier.fillMaxWidth(),
@@ -110,6 +120,13 @@ fun MainScreen(
             Text("Start meditation")
         }
     }
+}
+
+private fun formatDuration(totalSeconds: Int): String {
+    val hh = totalSeconds / 3600
+    val mm = (totalSeconds % 3600) / 60
+    val ss = totalSeconds % 60
+    return "%02d:%02d:%02d selected".format(hh, mm, ss)
 }
 
 @Composable
