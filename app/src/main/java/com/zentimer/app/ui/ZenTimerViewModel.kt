@@ -3,12 +3,12 @@ package com.zentimer.app.ui
 import android.app.Application
 import android.media.MediaPlayer
 import android.net.Uri
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +22,7 @@ private const val KEY_ASSET_TREE_URI = "asset_tree_uri"
 private const val KEY_DURATION_SECONDS = "duration_seconds"
 private const val KEY_SELECTED_AMBIENCE_PATH = "selected_ambience_path"
 private const val KEY_SELECTED_BELL_PATH = "selected_bell_path"
+private const val BELL_VM_TAG = "ZenBellVM"
 
 data class AmbienceTrack(
     val relativePath: String,
@@ -75,6 +76,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     private var bellCatalog: List<BellTrack> = emptyList()
     private var previewPlayer: MediaPlayer? = null
     private var bellPreviewDelayJob: Job? = null
+    private var bellPreviewPlayJob: Job? = null
 
     init {
         val savedDuration = prefs.getInt(KEY_DURATION_SECONDS, 0)
@@ -171,6 +173,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun onBellHighlighted(track: BellTrack) {
+        Log.d(BELL_VM_TAG, "onBellHighlighted path=${track.relativePath}")
         _uiState.update {
             it.copy(
                 selectedBellPath = track.relativePath,
@@ -178,13 +181,11 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
             )
         }
         bellPreviewDelayJob?.cancel()
-        bellPreviewDelayJob = viewModelScope.launch {
-            delay(1000)
-            startBellPreview(track.relativePath)
-        }
+        startBellPreview(track.relativePath)
     }
 
     fun onBellTapped(track: BellTrack) {
+        Log.d(BELL_VM_TAG, "onBellTapped path=${track.relativePath}")
         _uiState.update {
             it.copy(
                 selectedBellPath = track.relativePath,
@@ -220,12 +221,14 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
 
     fun submitBellSelection(): Boolean {
         val selectedPath = _uiState.value.selectedBellPath ?: return false
+        Log.d(BELL_VM_TAG, "submitBellSelection path=$selectedPath")
         prefs.edit().putString(KEY_SELECTED_BELL_PATH, selectedPath).apply()
         stopBellPreview()
         return true
     }
 
     fun onBellScreenClosed() {
+        Log.d(BELL_VM_TAG, "onBellScreenClosed")
         stopBellPreview()
     }
 
@@ -370,9 +373,14 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
 
     private fun startBellPreview(relativePath: String) {
         val treeUriString = _uiState.value.assetPath
-        if (treeUriString.isBlank()) return
+        if (treeUriString.isBlank()) {
+            Log.d(BELL_VM_TAG, "startBellPreview skipped_no_assets_path path=$relativePath")
+            return
+        }
 
-        viewModelScope.launch(Dispatchers.IO) {
+        bellPreviewPlayJob?.cancel()
+        Log.d(BELL_VM_TAG, "startBellPreview begin path=$relativePath")
+        bellPreviewPlayJob = viewModelScope.launch(Dispatchers.IO) {
             val uri = resolveTrackUri(treeUriString, relativePath) ?: return@launch
             try {
                 previewPlayer?.release()
@@ -382,8 +390,10 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
                     prepare()
                     start()
                 }
+                Log.d(BELL_VM_TAG, "startBellPreview started path=$relativePath")
                 _uiState.update { it.copy(bellPreviewPlayingPath = relativePath, previewPlayingPath = null) }
             } catch (_: Exception) {
+                Log.d(BELL_VM_TAG, "startBellPreview failed path=$relativePath")
                 _uiState.update { it.copy(bellPreviewPlayingPath = null) }
             }
         }
@@ -402,8 +412,11 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun stopBellPreview() {
+        Log.d(BELL_VM_TAG, "stopBellPreview")
         bellPreviewDelayJob?.cancel()
         bellPreviewDelayJob = null
+        bellPreviewPlayJob?.cancel()
+        bellPreviewPlayJob = null
         previewPlayer?.run {
             try {
                 if (isPlaying) stop()
@@ -466,6 +479,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     override fun onCleared() {
         super.onCleared()
         bellPreviewDelayJob?.cancel()
+        bellPreviewPlayJob?.cancel()
         previewPlayer?.release()
         previewPlayer = null
     }

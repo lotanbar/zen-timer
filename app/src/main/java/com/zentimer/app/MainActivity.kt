@@ -106,6 +106,12 @@ class MainActivity : ComponentActivity() {
                         composable("meditation") {
                             MeditationScreen(
                                 totalSeconds = uiState.durationSeconds,
+                                assetTreeUri = uiState.assetPath,
+                                ambienceRelativePath = uiState.selectedAmbiencePath,
+                                endingBellRelativePath = uiState.selectedBellPath,
+                                repeatBellsEnabled = uiState.repeatBellsEnabled,
+                                repeatStartBeforeSeconds = uiState.repeatStartBeforeSeconds,
+                                repeatCount = uiState.repeatCount,
                                 onSessionFinished = { navController.popBackStack("main", false) }
                             )
                         }
