@@ -17,6 +17,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.zentimer.app.ui.AmbienceScreen
 import com.zentimer.app.ui.MainScreen
 import com.zentimer.app.ui.MeditationScreen
 import com.zentimer.app.ui.TimePickerScreen
@@ -57,10 +58,24 @@ class MainActivity : ComponentActivity() {
                             MainScreen(
                                 uiState = uiState,
                                 onPickTime = { navController.navigate("time_picker") },
-                                onPickAmbience = viewModel::setDemoAmbienceConfigured,
+                                onPickAmbience = { navController.navigate("ambience_picker") },
                                 onPickBell = viewModel::setDemoBellConfigured,
                                 onPickAssetsPath = { treePickerLauncher.launch(null) },
                                 onStartMeditation = { navController.navigate("meditation") }
+                            )
+                        }
+                        composable("ambience_picker") {
+                            AmbienceScreen(
+                                uiState = uiState,
+                                onSearchQueryChange = viewModel::setAmbienceSearchQuery,
+                                onTrackTapped = viewModel::onAmbienceTileTapped,
+                                onShuffle = viewModel::shuffleAmbienceSelection,
+                                onRefreshConfirmed = viewModel::refreshAmbienceTracks,
+                                onSubmit = {
+                                    if (viewModel.submitAmbienceSelection()) {
+                                        navController.popBackStack()
+                                    }
+                                }
                             )
                         }
                         composable("time_picker") {
