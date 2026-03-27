@@ -25,17 +25,20 @@ private const val KEY_DURATION_SECONDS = "duration_seconds"
 private const val KEY_SELECTED_AMBIENCE_PATH = "selected_ambience_path"
 private const val KEY_SELECTED_BELL_PATH = "selected_bell_path"
 private const val BELL_VM_TAG = "ZenBellVM"
+private const val BELL_PREVIEW_TARGET_VOLUME = 0.2f
 
 data class AmbienceTrack(
     val relativePath: String,
     val title: String,
-    val thumbnailLabel: String
+    val thumbnailLabel: String,
+    val thumbnailRelativePath: String
 )
 
 data class BellTrack(
     val relativePath: String,
     val title: String,
     val thumbnailLabel: String,
+    val thumbnailRelativePath: String,
     val durationSeconds: Float? = null
 )
 
@@ -51,6 +54,7 @@ data class MainUiState(
     val selectedAmbiencePath: String? = null,
     val previewPlayingPath: String? = null,
     val bellTracks: List<BellTrack> = emptyList(),
+    val bellSearchQuery: String = "",
     val selectedBellPath: String? = null,
     val bellPreviewPlayingPath: String? = null,
     val selectedAmbience: String? = null,
@@ -107,6 +111,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
                 )
             }
             validateAssets(savedUri)
+            preloadVisibleThumbnails(savedUri)
         }
         initializeAmbienceCatalog()
         initializeBellCatalog()
@@ -184,6 +189,21 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         startBellPreview(track.relativePath)
     }
 
+    fun setBellSearchQuery(query: String) {
+        _uiState.update { it.copy(bellSearchQuery = query) }
+    }
+
+    fun refreshBellTracks() {
+        if (bellCatalog.isEmpty()) return
+        _uiState.update { it.copy(bellTracks = bellCatalog.shuffled()) }
+    }
+
+    fun shuffleBellSelection() {
+        val pool = filteredBellTracks(_uiState.value)
+        if (pool.isEmpty()) return
+        onBellTapped(pool.random())
+    }
+
     fun onBellTapped(track: BellTrack) {
         Log.d(BELL_VM_TAG, "onBellTapped path=${track.relativePath}")
         _uiState.update {
@@ -221,6 +241,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         }
         loadBellDurations(uriString)
         validateAssets(uriString)
+        preloadVisibleThumbnails(uriString)
     }
 
     private fun validateAssets(uriString: String) {
@@ -252,23 +273,30 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     private fun initializeAmbienceCatalog() {
         viewModelScope.launch {
             val tracks = withContext(Dispatchers.IO) {
-                app.assets.open("expected_assets_manifest.txt")
+                val manifestLines = app.assets.open("expected_assets_manifest.txt")
                     .bufferedReader()
-                    .useLines { lines ->
-                        lines
-                            .map { it.trim() }
-                            .filter { it.endsWith(".mp3", ignoreCase = true) }
-                            .filter { !it.startsWith("bells/") }
-                            .distinct()
-                            .map { path ->
-                                val fileName = path.substringAfterLast('/').substringBeforeLast('.')
-                                AmbienceTrack(
-                                    relativePath = path,
-                                    title = prettifyTrackName(fileName),
-                                    thumbnailLabel = thumbnailFromName(fileName)
-                                )
-                            }
-                            .toList()
+                    .useLines { lines -> lines.map { it.trim() }.filter { it.isNotBlank() }.toList() }
+
+                val allThumbnails = manifestLines
+                    .filter { it.startsWith("Thumbnails/") && it.endsWith(".jpg", ignoreCase = true) }
+                    .distinct()
+                    .sorted()
+                val thumbnailLookup = allThumbnails.associateBy { normalizeAssetKey(it.substringAfterLast('/').substringBeforeLast('.')) }
+
+                manifestLines
+                    .filter { it.endsWith(".mp3", ignoreCase = true) }
+                    .filter { !it.startsWith("bells/") }
+                    .distinct()
+                    .mapIndexed { index, path ->
+                        val fileName = path.substringAfterLast('/').substringBeforeLast('.')
+                        val exactThumbnail = thumbnailLookup[normalizeAssetKey(fileName)]
+                        val fallbackThumbnail = if (allThumbnails.isEmpty()) "" else allThumbnails[index % allThumbnails.size]
+                        AmbienceTrack(
+                            relativePath = path,
+                            title = prettifyTrackName(fileName),
+                            thumbnailLabel = thumbnailFromName(fileName),
+                            thumbnailRelativePath = exactThumbnail ?: fallbackThumbnail
+                        )
                     }
             }
 
@@ -283,6 +311,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
                     selectedAmbience = selectedTrack?.title ?: it.selectedAmbience
                 )
             }
+            preloadVisibleThumbnails(_uiState.value.assetPath)
         }
     }
 
@@ -301,7 +330,8 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
                                 BellTrack(
                                     relativePath = path,
                                     title = prettifyTrackName(fileName),
-                                    thumbnailLabel = thumbnailFromName(fileName)
+                                    thumbnailLabel = thumbnailFromName(fileName),
+                                    thumbnailRelativePath = "bells/bells_images/$fileName.png"
                                 )
                             }
                             .toList()
@@ -313,11 +343,12 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
 
             _uiState.update { state ->
                 state.copy(
-                    bellTracks = tracks,
+                    bellTracks = tracks.shuffled(Random(System.currentTimeMillis())),
                     selectedBellPath = selectedTrack?.relativePath ?: state.selectedBellPath,
                     selectedBell = selectedTrack?.title ?: state.selectedBell
                 )
             }
+            preloadVisibleThumbnails(_uiState.value.assetPath)
 
             val assetUri = _uiState.value.assetPath
             if (assetUri.isNotBlank()) {
@@ -335,8 +366,15 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
                 bell.copy(durationSeconds = sec)
             }
             bellCatalog = hydrated
+            val hydratedByPath = hydrated.associateBy { it.relativePath }
             _uiState.update { state ->
-                state.copy(bellTracks = hydrated)
+                state.copy(
+                    bellTracks = if (state.bellTracks.isEmpty()) {
+                        hydrated.shuffled(Random(System.currentTimeMillis()))
+                    } else {
+                        state.bellTracks.mapNotNull { hydratedByPath[it.relativePath] }
+                    }
+                )
             }
         }
     }
@@ -357,6 +395,23 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         val q = state.ambienceSearchQuery.trim()
         if (q.isBlank()) return state.ambienceTracks
         return state.ambienceTracks.filter { it.title.contains(q, ignoreCase = true) }
+    }
+
+    private fun filteredBellTracks(state: MainUiState): List<BellTrack> {
+        val q = state.bellSearchQuery.trim()
+        if (q.isBlank()) return state.bellTracks
+        return state.bellTracks.filter { it.title.contains(q, ignoreCase = true) }
+    }
+
+    private fun preloadVisibleThumbnails(assetTreeUri: String) {
+        if (assetTreeUri.isBlank()) return
+        val ambienceThumbs = _uiState.value.ambienceTracks.map { it.thumbnailRelativePath }
+        val bellThumbs = _uiState.value.bellTracks.map { it.thumbnailRelativePath }
+        val allThumbs = (ambienceThumbs + bellThumbs).distinct()
+        if (allThumbs.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            AssetThumbnailCache.preload(app, assetTreeUri, allThumbs)
+        }
     }
 
     private fun startPreview(relativePath: String) {
@@ -407,8 +462,9 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
                     repeat(steps) { step ->
                         val t = (step + 1).toFloat() / steps.toFloat()
                         val eased = (t * t * (3f - (2f * t))).coerceIn(0f, 1f)
+                        val previewVolume = eased * BELL_PREVIEW_TARGET_VOLUME
                         try {
-                            player.setVolume(eased, eased)
+                            player.setVolume(previewVolume, previewVolume)
                         } catch (_: Exception) {
                             return@launch
                         }
@@ -491,6 +547,11 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
             else -> "Zen"
         }
     }
+
+    private fun normalizeAssetKey(raw: String): String =
+        raw.lowercase()
+            .replace(Regex("[^a-z0-9]+"), "_")
+            .trim('_')
 
     override fun onCleared() {
         super.onCleared()

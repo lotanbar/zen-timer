@@ -1,50 +1,51 @@
 package com.zentimer.app.ui
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 
 @Composable
 fun AmbienceScreen(
     uiState: MainUiState,
-    onSearchQueryChange: (String) -> Unit,
     onTrackTapped: (AmbienceTrack) -> Unit,
     onShuffle: () -> Unit,
-    onRefreshConfirmed: () -> Unit,
+    onRefresh: () -> Unit,
     onScreenClosed: () -> Unit,
     onSubmit: () -> Unit
 ) {
-    var showRefreshConfirm by remember { mutableStateOf(false) }
-    val visibleTracks = uiState.ambienceTracks.filter {
-        uiState.ambienceSearchQuery.isBlank() || it.title.contains(uiState.ambienceSearchQuery, ignoreCase = true)
-    }
+    val visibleTracks = uiState.ambienceTracks.take(20)
+
     DisposableEffect(Unit) {
         onDispose { onScreenClosed() }
     }
@@ -52,50 +53,80 @@ fun AmbienceScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
-        Text("Pick ambience", style = MaterialTheme.typography.headlineSmall)
-        OutlinedTextField(
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            value = uiState.ambienceSearchQuery,
-            onValueChange = onSearchQueryChange,
-            label = { Text("Search ambience") },
-            singleLine = true
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onShuffle) { Text("Shuffle") }
-            Button(onClick = { showRefreshConfirm = true }) { Text("Refresh 20") }
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End
+        ) {
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                IconButton(onClick = onShuffle, modifier = Modifier.size(56.dp)) {
+                    Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle")
+                }
+            }
+            Spacer(modifier = Modifier.size(8.dp))
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                IconButton(onClick = onRefresh, modifier = Modifier.size(56.dp)) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                }
+            }
         }
 
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentAlignment = Alignment.Center
         ) {
-            items(visibleTracks, key = { it.relativePath }) { track ->
-                val isSelected = uiState.selectedAmbiencePath == track.relativePath
-                val isPlaying = uiState.previewPlayingPath == track.relativePath
-                Card(
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth(0.98f)) {
+                val spacing = 10.dp
+                val density = LocalDensity.current
+                val tileSize = with(density) { ((maxWidth - (spacing * 3)) / 4).toPx() }
+                val gridHeight = with(density) { (tileSize * 5f).toDp() + (spacing * 4) }
+
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(4),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onTrackTapped(track) },
-                    border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                    )
+                        .height(gridHeight),
+                    horizontalArrangement = Arrangement.spacedBy(spacing),
+                    verticalArrangement = Arrangement.spacedBy(spacing)
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(track.thumbnailLabel, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
-                        Spacer(Modifier.height(4.dp))
-                        Text(track.title, style = MaterialTheme.typography.bodyLarge)
-                        if (isPlaying) {
-                            Text("Preview playing", color = MaterialTheme.colorScheme.primary)
+                    items(visibleTracks, key = { it.relativePath }) { track ->
+                        val isSelected = uiState.selectedAmbiencePath == track.relativePath
+                        val border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.medium)
+                                .clickable { onTrackTapped(track) },
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.background,
+                            border = border
+                        ) {
+                            AssetPreviewImage(
+                                assetTreeUri = uiState.assetPath,
+                                relativePath = track.thumbnailRelativePath,
+                                square = true
+                            )
                         }
                     }
                 }
             }
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
         Button(
             modifier = Modifier.fillMaxWidth(),
             onClick = onSubmit,
@@ -103,26 +134,5 @@ fun AmbienceScreen(
         ) {
             Text("Submit ambience")
         }
-    }
-
-    if (showRefreshConfirm) {
-        AlertDialog(
-            onDismissRequest = { showRefreshConfirm = false },
-            title = { Text("Refresh ambience list?") },
-            text = { Text("This will randomize 20 tracks again and you might lose current visible picks.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showRefreshConfirm = false
-                    onRefreshConfirmed()
-                }) {
-                    Text("Refresh")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRefreshConfirm = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
     }
 }

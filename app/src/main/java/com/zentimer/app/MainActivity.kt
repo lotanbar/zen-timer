@@ -22,6 +22,7 @@ import com.zentimer.app.ui.EndingBellScreen
 import com.zentimer.app.ui.MainScreen
 import com.zentimer.app.ui.MeditationScreen
 import com.zentimer.app.ui.TimePickerScreen
+import com.zentimer.app.ui.ZenAppTheme
 import com.zentimer.app.ui.ZenTimerViewModel
 
 class MainActivity : ComponentActivity() {
@@ -29,7 +30,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MaterialTheme {
+            ZenAppTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -68,10 +69,9 @@ class MainActivity : ComponentActivity() {
                         composable("ambience_picker") {
                             AmbienceScreen(
                                 uiState = uiState,
-                                onSearchQueryChange = viewModel::setAmbienceSearchQuery,
                                 onTrackTapped = viewModel::onAmbienceTileTapped,
                                 onShuffle = viewModel::shuffleAmbienceSelection,
-                                onRefreshConfirmed = viewModel::refreshAmbienceTracks,
+                                onRefresh = viewModel::refreshAmbienceTracks,
                                 onScreenClosed = viewModel::onAmbienceScreenClosed,
                                 onSubmit = {
                                     if (viewModel.submitAmbienceSelection()) {
@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
                         composable("ending_bell_picker") {
                             EndingBellScreen(
                                 uiState = uiState,
+                                onShuffle = viewModel::shuffleBellSelection,
                                 onBellHighlighted = viewModel::onBellHighlighted,
                                 onBellTapped = viewModel::onBellTapped,
                                 onScreenClosed = viewModel::onBellScreenClosed,

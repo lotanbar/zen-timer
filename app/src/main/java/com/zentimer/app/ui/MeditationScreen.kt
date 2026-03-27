@@ -6,11 +6,17 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -40,7 +47,7 @@ fun MeditationScreen(
     val ambienceLoopFadeMs = 5_000L
     val ambienceSessionEndFadeMs = 10_000L
     val bellFadeInMs = 150L
-    val bellTargetVolume = 0.7f
+    val bellTargetVolume = 0.2f
 
     val context = LocalContext.current
     var remaining by remember(totalSeconds) {
@@ -351,21 +358,33 @@ fun MeditationScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Meditation", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            text = formatted,
-            style = MaterialTheme.typography.displayLarge,
-            fontWeight = FontWeight.Bold
-        )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            tonalElevation = 2.dp,
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Text(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 28.dp),
+                text = formatted,
+                style = MaterialTheme.typography.displayLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(top = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Button(
                 modifier = Modifier.weight(1f),
@@ -385,7 +404,7 @@ fun MeditationScreen(
             ) {
                 Text(if (isPaused) "Resume" else "Pause")
             }
-            Button(
+            OutlinedButton(
                 modifier = Modifier.weight(1f),
                 onClick = {
                     oneShotPlayers.forEach { player ->
@@ -406,7 +425,8 @@ fun MeditationScreen(
                     }
                     ambiencePlayer = null
                     onSessionFinished()
-                }
+                },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
             ) {
                 Text("Stop")
             }
