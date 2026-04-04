@@ -31,10 +31,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zentimer.app.R
 
@@ -75,15 +77,6 @@ fun MainScreen(
             }
         }
 
-        if (gateReason != null) {
-            Text(
-                text = "Meditation blocked: $gateReason",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Spacer(Modifier.height(10.dp))
-        }
-
         Spacer(Modifier.weight(1f))
 
         Column(
@@ -92,7 +85,7 @@ fun MainScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             SelectionCard(
-                modifier = Modifier.fillMaxWidth(0.98f),
+                modifier = Modifier.fillMaxWidth(),
                 title = "Time",
                 value = if (uiState.isTimeConfigured) formatDuration(uiState.durationSeconds) else "Not selected",
                 assetTreeUri = null,
@@ -100,7 +93,7 @@ fun MainScreen(
                 onAction = onPickTime
             )
             SelectionCard(
-                modifier = Modifier.fillMaxWidth(0.98f),
+                modifier = Modifier.fillMaxWidth(),
                 title = "Ambience",
                 value = uiState.selectedAmbience ?: "Not selected",
                 assetTreeUri = uiState.assetPath,
@@ -108,7 +101,7 @@ fun MainScreen(
                 onAction = onPickAmbience
             )
             SelectionCard(
-                modifier = Modifier.fillMaxWidth(0.98f),
+                modifier = Modifier.fillMaxWidth(),
                 title = "Ending bell",
                 value = uiState.selectedBell ?: "Not selected",
                 assetTreeUri = uiState.assetPath,
@@ -226,8 +219,7 @@ private fun SelectionCard(
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(108.dp)
+                .fillMaxSize()
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -241,19 +233,24 @@ private fun SelectionCard(
                 Text(
                     value,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.secondary
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
             if (!thumbnailRelativePath.isNullOrBlank() && !assetTreeUri.isNullOrBlank()) {
                 androidx.compose.foundation.layout.Box(
-                    modifier = Modifier.size(58.dp),
+                    modifier = Modifier
+                        .size(58.dp)
+                        .clip(RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     AssetPreviewImage(
                         assetTreeUri = assetTreeUri,
                         relativePath = thumbnailRelativePath,
-                        square = true
+                        square = true,
+                        shape = null
                     )
                 }
             } else {

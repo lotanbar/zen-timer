@@ -7,7 +7,6 @@ import android.net.Uri
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,10 +15,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -33,7 +32,8 @@ fun AssetPreviewImage(
     assetTreeUri: String,
     relativePath: String,
     modifier: Modifier = Modifier,
-    square: Boolean = false
+    square: Boolean = false,
+    shape: Shape? = RoundedCornerShape(12.dp)
 ) {
     val context = LocalContext.current
     val bitmap by produceState<Bitmap?>(initialValue = null, assetTreeUri, relativePath) {
@@ -42,11 +42,12 @@ fun AssetPreviewImage(
         }
     }
 
-    val imageModifier = if (square) {
+    val baseModifier = if (square) {
         modifier.fillMaxWidth().aspectRatio(1f)
     } else {
         modifier.fillMaxWidth().height(120.dp)
     }
+    val imageModifier = if (shape != null) baseModifier.clip(shape) else baseModifier
 
     if (bitmap != null) {
         Image(
@@ -54,15 +55,10 @@ fun AssetPreviewImage(
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = imageModifier
-                .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, Color(0xFF2A2A2A), RoundedCornerShape(12.dp))
         )
     } else {
         Box(
-            modifier = imageModifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF121212))
-                .border(1.dp, Color(0xFF2A2A2A), RoundedCornerShape(12.dp))
+            modifier = imageModifier.background(Color(0xFF121212))
         )
     }
 }

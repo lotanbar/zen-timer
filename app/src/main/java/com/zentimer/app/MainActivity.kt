@@ -17,8 +17,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.zentimer.app.ui.AmbienceScreen
-import com.zentimer.app.ui.EndingBellScreen
+import com.zentimer.app.ui.SelectableTrack
+import com.zentimer.app.ui.TrackSelectionScreen
 import com.zentimer.app.ui.MainScreen
 import com.zentimer.app.ui.MeditationScreen
 import com.zentimer.app.ui.TimePickerScreen
@@ -67,16 +67,21 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable("ambience_picker") {
-                            AmbienceScreen(
-                                uiState = uiState,
-                                onTrackTapped = viewModel::onAmbienceTileTapped,
+                            TrackSelectionScreen(
+                                assetPath = uiState.assetPath,
+                                tracks = uiState.ambienceTracks.map {
+                                    SelectableTrack(it.relativePath, it.thumbnailRelativePath)
+                                },
+                                selectedPath = uiState.selectedAmbiencePath,
+                                imagePadded = false,
+                                onTrackTapped = { viewModel.onAmbienceTileTapped(uiState.ambienceTracks.first { t -> t.relativePath == it.relativePath }) },
                                 onShuffle = viewModel::shuffleAmbienceSelection,
                                 onRefresh = viewModel::refreshAmbienceTracks,
                                 onScreenClosed = viewModel::onAmbienceScreenClosed,
+                                submitText = "Submit ambience",
+                                submitEnabled = uiState.selectedAmbiencePath != null,
                                 onSubmit = {
-                                    if (viewModel.submitAmbienceSelection()) {
-                                        navController.popBackStack()
-                                    }
+                                    if (viewModel.submitAmbienceSelection()) navController.popBackStack()
                                 }
                             )
                         }
@@ -88,16 +93,21 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable("ending_bell_picker") {
-                            EndingBellScreen(
-                                uiState = uiState,
+                            TrackSelectionScreen(
+                                assetPath = uiState.assetPath,
+                                tracks = uiState.bellTracks.map {
+                                    SelectableTrack(it.relativePath, it.thumbnailRelativePath)
+                                },
+                                selectedPath = uiState.selectedBellPath,
+                                imagePadded = true,
+                                onTrackTapped = { viewModel.onBellHighlighted(uiState.bellTracks.first { t -> t.relativePath == it.relativePath }) },
+                                onTrackConfirmed = { viewModel.onBellTapped(uiState.bellTracks.first { t -> t.relativePath == it.relativePath }) },
                                 onShuffle = viewModel::shuffleBellSelection,
-                                onBellHighlighted = viewModel::onBellHighlighted,
-                                onBellTapped = viewModel::onBellTapped,
                                 onScreenClosed = viewModel::onBellScreenClosed,
+                                submitText = "Submit ending bell",
+                                submitEnabled = uiState.selectedBellPath != null,
                                 onSubmit = {
-                                    if (viewModel.submitBellSelection()) {
-                                        navController.popBackStack()
-                                    }
+                                    if (viewModel.submitBellSelection()) navController.popBackStack()
                                 }
                             )
                         }

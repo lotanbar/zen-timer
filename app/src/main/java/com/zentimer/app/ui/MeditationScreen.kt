@@ -31,9 +31,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 @Composable
@@ -243,24 +245,29 @@ fun MeditationScreen(
 
         if (ambience != null && totalSeconds > 0) {
             ambiencePlaybackJob = launch {
+                var preloadedPlayer: MediaPlayer? = null
+
                 while (remaining > 0) {
-                    val player = if (ambiencePlayer != null) {
-                        ambiencePlayer
-                    } else {
-                        try {
-                            if (ambienceUri == null) {
+                    val player: MediaPlayer = when {
+                        ambiencePlayer != null -> ambiencePlayer!!
+                        preloadedPlayer != null -> preloadedPlayer!!.also {
+                            preloadedPlayer = null
+                            it.start()
+                        }
+                        else -> {
+                            if (ambienceUri == null) break
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    MediaPlayer().apply {
+                                        setDataSource(context, ambienceUri)
+                                        isLooping = false
+                                        prepare()
+                                        setVolume(0f, 0f)
+                                    }
+                                }.also { it.start() }
+                            } catch (_: Exception) {
                                 null
-                            } else {
-                                MediaPlayer().apply {
-                                    setDataSource(context, ambienceUri)
-                                    isLooping = false
-                                    prepare()
-                                    setVolume(0f, 0f)
-                                    start()
-                                }
                             }
-                        } catch (_: Exception) {
-                            null
                         }
                     } ?: break
 
@@ -278,6 +285,27 @@ fun MeditationScreen(
                                 ambienceFadeOutInProgress = true
                                 startAmbienceFade(target = 0f, durationMs = ambienceLoopFadeMs)
                             }
+                            // Pre-load the next player during the fade-out window so it is
+                            // ready immediately when the current track ends, avoiding a gap.
+                            if (!finalSessionFadeStarted && ambienceUri != null && preloadedPlayer == null) {
+                                val loaded = try {
+                                    withContext(Dispatchers.IO) {
+                                        MediaPlayer().apply {
+                                            setDataSource(context, ambienceUri)
+                                            isLooping = false
+                                            prepare()
+                                            setVolume(0f, 0f)
+                                        }
+                                    }
+                                } catch (_: Exception) {
+                                    null
+                                }
+                                if (!finalSessionFadeStarted) {
+                                    preloadedPlayer = loaded
+                                } else {
+                                    loaded?.release()
+                                }
+                            }
                         }
                     }
 
@@ -291,12 +319,17 @@ fun MeditationScreen(
 
                     // If session fade-out already started, do not restart ambience. Wait remaining time.
                     if (finalSessionFadeStarted) {
+                        preloadedPlayer?.release()
+                        preloadedPlayer = null
                         while (remaining > 0) {
                             delay(250)
                         }
                         break
                     }
                 }
+
+                preloadedPlayer?.release()
+                preloadedPlayer = null
             }
         }
 
@@ -406,6 +439,7 @@ fun MeditationScreen(
             }
             OutlinedButton(
                 modifier = Modifier.weight(1f),
+                shape = MaterialTheme.shapes.extraLarge,
                 onClick = {
                     oneShotPlayers.forEach { player ->
                         try {

@@ -137,7 +137,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
 
     fun refreshAmbienceTracks() {
         if (ambienceCatalog.isEmpty()) return
-        _uiState.update { it.copy(ambienceTracks = ambienceCatalog.shuffled().take(20)) }
+        _uiState.update { it.copy(ambienceTracks = ambienceCatalog.shuffled().distinctBy { it.thumbnailRelativePath }.take(40)) }
     }
 
     fun shuffleAmbienceSelection() {
@@ -306,7 +306,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
 
             _uiState.update {
                 it.copy(
-                    ambienceTracks = tracks.shuffled(Random(System.currentTimeMillis())).take(20),
+                    ambienceTracks = tracks.shuffled(Random(System.currentTimeMillis())).distinctBy { it.thumbnailRelativePath }.take(40),
                     selectedAmbiencePath = selectedTrack?.relativePath,
                     selectedAmbience = selectedTrack?.title ?: it.selectedAmbience
                 )
