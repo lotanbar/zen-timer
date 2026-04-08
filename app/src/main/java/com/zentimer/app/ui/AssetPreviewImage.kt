@@ -119,11 +119,7 @@ object AssetThumbnailCache {
 }
 
 private fun resolveAssetFileUri(assetTreeUri: String, relativePath: String, context: Context): Uri? {
-    val root = try {
-        DocumentFile.fromTreeUri(context, Uri.parse(assetTreeUri))
-    } catch (_: Exception) {
-        null
-    } ?: return null
+    val root = openAssetRoot(context, assetTreeUri) ?: return null
 
     var current: DocumentFile = root
     val segments = relativePath.split('/').filter { it.isNotBlank() }

@@ -1,7 +1,6 @@
 package com.zentimer.app.ui
 
 import android.app.Application
-import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -24,18 +23,12 @@ class AssetPackageValidator(
         }
     }
 
-    suspend fun validate(treeUri: Uri): AssetValidationResult = withContext(Dispatchers.IO) {
+    suspend fun validate(path: String): AssetValidationResult = withContext(Dispatchers.IO) {
         try {
-            val root = try {
-                DocumentFile.fromTreeUri(application, treeUri)
-            } catch (_: Exception) {
-                null
-            }
+            val root = openAssetRoot(application, path)
 
             if (root == null || !root.exists() || !root.isDirectory) {
-                return@withContext AssetValidationResult.Invalid(
-                    "Selected assets path is unavailable."
-                )
+                return@withContext AssetValidationResult.Invalid("Path unavailable.")
             }
 
             val actualFiles = mutableSetOf<String>()
@@ -47,12 +40,13 @@ class AssetPackageValidator(
             if (actualFiles == expectedFiles) {
                 AssetValidationResult.Valid
             } else {
-                AssetValidationResult.Invalid(
-                    "Selected assets do not match expected package exactly (${actualFiles.size}/${expectedFiles.size} files)."
-                )
+                val missing = expectedFiles.size - actualFiles.size
+                val msg = if (missing > 0) "$missing/${expectedFiles.size} tracks missing"
+                          else "${actualFiles.size}/${expectedFiles.size} files found"
+                AssetValidationResult.Invalid(msg)
             }
         } catch (_: Exception) {
-            AssetValidationResult.Invalid("Unable to scan selected assets folder.")
+            AssetValidationResult.Invalid("Failed to scan folder.")
         }
     }
 
@@ -64,7 +58,7 @@ class AssetPackageValidator(
         val children = try {
             node.listFiles()
         } catch (_: Exception) {
-            return AssetValidationResult.Invalid("Missing permission to read selected assets folder.")
+            return AssetValidationResult.Invalid("Permission denied.")
         }
 
         children.forEach { child ->

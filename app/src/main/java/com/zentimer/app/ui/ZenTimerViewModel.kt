@@ -229,6 +229,18 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         stopBellPreview()
     }
 
+    fun clearAssetDirectory() {
+        prefs.edit().remove(KEY_ASSET_TREE_URI).apply()
+        _uiState.update {
+            it.copy(
+                assetPath = "",
+                isAssetsValid = false,
+                isValidatingAssets = false,
+                assetBannerMessage = null
+            )
+        }
+    }
+
     fun setAssetDirectory(uriString: String) {
         prefs.edit().putString(KEY_ASSET_TREE_URI, uriString).apply()
         _uiState.update {
@@ -246,7 +258,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
 
     private fun validateAssets(uriString: String) {
         viewModelScope.launch {
-            when (val result = validator.validate(Uri.parse(uriString))) {
+            when (val result = validator.validate(uriString)) {
                 is AssetValidationResult.Valid -> {
                     _uiState.update {
                         it.copy(
@@ -512,11 +524,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun resolveTrackUri(treeUriString: String, relativePath: String): Uri? {
-        val root = try {
-            DocumentFile.fromTreeUri(app, Uri.parse(treeUriString))
-        } catch (_: Exception) {
-            null
-        } ?: return null
+        val root = openAssetRoot(app, treeUriString) ?: return null
 
         val segments = relativePath.split("/").filter { it.isNotBlank() }
         var current: DocumentFile = root

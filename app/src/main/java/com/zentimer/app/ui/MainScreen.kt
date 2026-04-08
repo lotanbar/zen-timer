@@ -27,7 +27,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -43,10 +46,12 @@ import com.zentimer.app.R
 @Composable
 fun MainScreen(
     uiState: MainUiState,
+    hasAllFilesPermission: Boolean,
     onPickTime: () -> Unit,
     onPickAmbience: () -> Unit,
     onPickBell: () -> Unit,
-    onPickAssetsPath: () -> Unit,
+    onSetAssetsPath: (String) -> Unit,
+    onPermissionMissing: () -> Unit,
     onStartMeditation: () -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
@@ -57,6 +62,20 @@ fun MainScreen(
     val selectedBellThumb = uiState.bellTracks
         .firstOrNull { it.relativePath == uiState.selectedBellPath }
         ?.thumbnailRelativePath
+
+    var showFolderPicker by remember { mutableStateOf(false) }
+
+    if (showFolderPicker) {
+        FolderPickerDialog(
+            initialPath = uiState.assetPath.takeIf { it.startsWith("/") }
+                ?: "/storage/emulated/0",
+            onFolderSelected = { path ->
+                onSetAssetsPath(path)
+                showFolderPicker = false
+            },
+            onDismiss = { showFolderPicker = false }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -124,30 +143,45 @@ fun MainScreen(
                 textDecoration = TextDecoration.Underline,
                 modifier = Modifier.clickable { uriHandler.openUri(downloadUrl) }
             )
-            if (uiState.isValidatingAssets) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp
-                    )
+            when {
+                uiState.isValidatingAssets -> {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text(
+                            text = "Validating…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+                uiState.isAssetsValid -> {
                     Text(
-                        text = "Validating...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.secondary
+                        text = "✓ Valid",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                uiState.assetBannerMessage != null -> {
+                    Text(
+                        text = uiState.assetBannerMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
                     )
                 }
             }
         }
         Spacer(Modifier.height(10.dp))
 
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .alpha(if (uiState.isValidatingAssets) 0.5f else 1f)
+                .alpha(if (uiState.isValidatingAssets) 0.5f else 1f),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            val pathInvalid = !uiState.isAssetsValid && uiState.assetPath.isNotBlank() && !uiState.isValidatingAssets
             OutlinedTextField(
                 modifier = Modifier.fillMaxWidth(),
                 value = uiState.assetPath,
@@ -155,27 +189,24 @@ fun MainScreen(
                 readOnly = true,
                 enabled = !uiState.isValidatingAssets,
                 singleLine = true,
+                isError = pathInvalid,
                 label = { Text("Config path") },
                 placeholder = { Text("No folder selected") },
                 trailingIcon = {
                     IconButton(
-                        onClick = onPickAssetsPath,
+                        onClick = {
+                            if (hasAllFilesPermission) showFolderPicker = true
+                            else onPermissionMissing()
+                        },
                         enabled = !uiState.isValidatingAssets
                     ) {
-                        Icon(Icons.Filled.FolderOpen, contentDescription = "Open folder picker")
+                        Icon(Icons.Filled.FolderOpen, contentDescription = "Browse for folder")
                     }
                 }
             )
         }
 
-        if (!uiState.isValidatingAssets && uiState.assetBannerMessage != null) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = uiState.assetBannerMessage,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
+        Spacer(Modifier.height(6.dp))
 
         Button(
             modifier = Modifier

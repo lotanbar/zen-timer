@@ -82,14 +82,7 @@ fun MeditationScreen(
     }
 
     LaunchedEffect(totalSeconds, assetTreeUri, ambienceRelativePath, endingBellRelativePath) {
-        val treeUri = assetTreeUri.takeIf { it.isNotBlank() }?.let { Uri.parse(it) }
-        val root = treeUri?.let { uri ->
-            try {
-                DocumentFile.fromTreeUri(context, uri)
-            } catch (_: Exception) {
-                null
-            }
-        }
+        val root = openAssetRoot(context, assetTreeUri)
 
         fun resolve(relativePath: String?): Uri? {
             if (root == null || relativePath.isNullOrBlank()) return null
