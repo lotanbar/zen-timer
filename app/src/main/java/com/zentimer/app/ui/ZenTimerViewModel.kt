@@ -19,6 +19,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
+const val NO_AMBIENCE_PATH = "__none__"
+
+data class BundledAmbienceTrack(val sentinelPath: String, val resName: String, val label: String)
+
+val BUNDLED_TRACKS = listOf(
+    BundledAmbienceTrack("__bundled__/forest_20s", "bundled_forest_20s", "Forest 20s"),
+)
+
+private fun bundledUri(sentinelPath: String): Uri? =
+    BUNDLED_TRACKS.firstOrNull { it.sentinelPath == sentinelPath }
+        ?.let { Uri.parse("android.resource://com.zentimer.app/raw/${it.resName}") }
+
 private const val PREFS_NAME = "zen_timer_prefs"
 private const val KEY_ASSET_TREE_URI = "asset_tree_uri"
 private const val KEY_DURATION_SECONDS = "duration_seconds"
@@ -26,6 +38,7 @@ private const val KEY_SELECTED_AMBIENCE_PATH = "selected_ambience_path"
 private const val KEY_SELECTED_BELL_PATH = "selected_bell_path"
 private const val BELL_VM_TAG = "ZenBellVM"
 private const val BELL_PREVIEW_TARGET_VOLUME = 0.2f
+private const val AMBIENCE_BATCH_SIZE = 20
 
 data class AmbienceTrack(
     val relativePath: String,
@@ -76,6 +89,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
     private var ambienceCatalog: List<AmbienceTrack> = emptyList()
+    private var allThumbnailPaths: List<String> = emptyList()
     private var bellCatalog: List<BellTrack> = emptyList()
     private var previewPlayer: MediaPlayer? = null
     private var bellPreviewDelayJob: Job? = null
@@ -137,7 +151,15 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
 
     fun refreshAmbienceTracks() {
         if (ambienceCatalog.isEmpty()) return
-        _uiState.update { it.copy(ambienceTracks = ambienceCatalog.shuffled().distinctBy { it.thumbnailRelativePath }.take(40)) }
+        stopPreview()
+        _uiState.update {
+            it.copy(ambienceTracks = pickAmbienceBatch(System.currentTimeMillis()))
+        }
+    }
+
+    fun onAppBackgrounded() {
+        stopPreview()
+        stopBellPreview()
     }
 
     fun shuffleAmbienceSelection() {
@@ -160,6 +182,23 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
             )
         }
         startPreview(track.relativePath)
+    }
+
+    fun selectNoAmbience() {
+        stopPreview()
+        _uiState.update {
+            it.copy(
+                selectedAmbiencePath = NO_AMBIENCE_PATH,
+                selectedAmbience = "No sound"
+            )
+        }
+    }
+
+    fun selectBundledAmbience(track: BundledAmbienceTrack) {
+        val current = _uiState.value.selectedAmbiencePath
+        if (current == track.sentinelPath) { stopPreview(); return }
+        _uiState.update { it.copy(selectedAmbiencePath = track.sentinelPath, selectedAmbience = track.label) }
+        startPreview(track.sentinelPath)
     }
 
     fun submitAmbienceSelection(): Boolean {
@@ -284,7 +323,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
 
     private fun initializeAmbienceCatalog() {
         viewModelScope.launch {
-            val tracks = withContext(Dispatchers.IO) {
+            val (tracks, thumbnails) = withContext(Dispatchers.IO) {
                 val manifestLines = app.assets.open("expected_assets_manifest.txt")
                     .bufferedReader()
                     .useLines { lines -> lines.map { it.trim() }.filter { it.isNotBlank() }.toList() }
@@ -293,34 +332,46 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
                     .filter { it.startsWith("Thumbnails/") && it.endsWith(".jpg", ignoreCase = true) }
                     .distinct()
                     .sorted()
-                val thumbnailLookup = allThumbnails.associateBy { normalizeAssetKey(it.substringAfterLast('/').substringBeforeLast('.')) }
 
-                manifestLines
+                val catalog = manifestLines
                     .filter { it.endsWith(".mp3", ignoreCase = true) }
                     .filter { !it.startsWith("bells/") }
                     .distinct()
-                    .mapIndexed { index, path ->
+                    .map { path ->
                         val fileName = path.substringAfterLast('/').substringBeforeLast('.')
-                        val exactThumbnail = thumbnailLookup[normalizeAssetKey(fileName)]
-                        val fallbackThumbnail = if (allThumbnails.isEmpty()) "" else allThumbnails[index % allThumbnails.size]
                         AmbienceTrack(
                             relativePath = path,
                             title = prettifyTrackName(fileName),
                             thumbnailLabel = thumbnailFromName(fileName),
-                            thumbnailRelativePath = exactThumbnail ?: fallbackThumbnail
+                            thumbnailRelativePath = ""
                         )
                     }
+                Pair(catalog, allThumbnails)
             }
 
+            allThumbnailPaths = thumbnails
             ambienceCatalog = tracks
             val savedSelection = prefs.getString(KEY_SELECTED_AMBIENCE_PATH, null)
-            val selectedTrack = tracks.firstOrNull { it.relativePath == savedSelection }
+            val noAmbienceSaved = savedSelection == NO_AMBIENCE_PATH
+            val bundledSaved = BUNDLED_TRACKS.firstOrNull { it.sentinelPath == savedSelection }
+            val selectedTrack = if (noAmbienceSaved || bundledSaved != null) null
+                                else tracks.firstOrNull { it.relativePath == savedSelection }
+
+            val displayed = pickAmbienceBatch(System.currentTimeMillis())
 
             _uiState.update {
                 it.copy(
-                    ambienceTracks = tracks.shuffled(Random(System.currentTimeMillis())).distinctBy { it.thumbnailRelativePath }.take(40),
-                    selectedAmbiencePath = selectedTrack?.relativePath,
-                    selectedAmbience = selectedTrack?.title ?: it.selectedAmbience
+                    ambienceTracks = displayed,
+                    selectedAmbiencePath = when {
+                        noAmbienceSaved -> NO_AMBIENCE_PATH
+                        bundledSaved != null -> bundledSaved.sentinelPath
+                        else -> selectedTrack?.relativePath
+                    },
+                    selectedAmbience = when {
+                        noAmbienceSaved -> "No sound"
+                        bundledSaved != null -> bundledSaved.label
+                        else -> selectedTrack?.title ?: it.selectedAmbience
+                    }
                 )
             }
             preloadVisibleThumbnails(_uiState.value.assetPath)
@@ -427,11 +478,12 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun startPreview(relativePath: String) {
-        val treeUriString = _uiState.value.assetPath
-        if (treeUriString.isBlank()) return
-
         viewModelScope.launch(Dispatchers.IO) {
-            val uri = resolveTrackUri(treeUriString, relativePath) ?: return@launch
+            val uri = bundledUri(relativePath) ?: run {
+                val treeUriString = _uiState.value.assetPath
+                if (treeUriString.isBlank()) return@launch
+                resolveTrackUri(treeUriString, relativePath) ?: return@launch
+            }
             try {
                 previewPlayer?.release()
                 previewPlayer = MediaPlayer().apply {
@@ -560,6 +612,98 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         raw.lowercase()
             .replace(Regex("[^a-z0-9]+"), "_")
             .trim('_')
+
+    /**
+     * Shuffles the full catalog, picks [AMBIENCE_BATCH_SIZE] tracks, then greedily assigns
+     * the best *available* thumbnail to each — so every track in the batch gets a unique,
+     * semantically relevant photo with no collisions.
+     */
+    private fun pickAmbienceBatch(seed: Long): List<AmbienceTrack> {
+        if (ambienceCatalog.isEmpty() || allThumbnailPaths.isEmpty()) return emptyList()
+        val subset = ambienceCatalog.shuffled(Random(seed)).take(AMBIENCE_BATCH_SIZE)
+        val used = mutableSetOf<String>()
+        return subset.map { track ->
+            val fileName = track.relativePath.substringAfterLast('/').substringBeforeLast('.')
+            val segments = track.relativePath.split("/")
+            val parentFolder = if (segments.size >= 2) segments[segments.size - 2] else ""
+            val thumbnail = findBestAvailableThumbnail(
+                trackContext = "$parentFolder $fileName",
+                folderName = parentFolder,
+                thumbnails = allThumbnailPaths,
+                used = used,
+                seed = normalizeAssetKey(track.relativePath).hashCode().toLong() xor seed
+            )
+            used += thumbnail
+            track.copy(thumbnailRelativePath = thumbnail)
+        }
+    }
+
+    // When keyword score is 0, restrict the fallback pool to thumbnails that are
+    // visually relevant for the Boom Library folder rather than picking from all 150.
+    private val folderCategoryKeywords: Map<String, List<String>> = mapOf(
+        "ocean-surf" to listOf(
+            "ocean", "wave", "lapping", "crashing", "beach", "island", "sea", "windswept", "shore"
+        ),
+        "water-ambiences" to listOf(
+            "brook", "bubbling", "flow", "stream", "river", "waterfall", "fountain", "lake",
+            "spring", "water", "cave", "drip", "campfire", "fire", "pool", "creek"
+        ),
+        "weather-atmospheric" to listOf(
+            "wind", "rain", "storm", "thunder", "forest", "pine", "tree",
+            "jungle", "rainforest", "wood", "cloud"
+        )
+    )
+
+    private fun findBestAvailableThumbnail(
+        trackContext: String,
+        folderName: String,
+        thumbnails: List<String>,
+        used: Set<String>,
+        seed: Long
+    ): String {
+        val available = thumbnails.filter { it !in used }.ifEmpty { thumbnails }
+
+        val stopwords = setOf(
+            "the", "and", "for", "with", "from", "by", "in", "on", "at", "to", "of", "a", "an",
+            "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10"
+        )
+        fun keywords(s: String): List<String> =
+            s.lowercase()
+                .replace(Regex("[^a-z0-9]+"), " ")
+                .trim()
+                .split(Regex("\\s+"))
+                .filter { it.length >= 3 && it !in stopwords }
+
+        val trackWords = keywords(trackContext)
+        fun thumbScore(path: String): Int {
+            val thumbName = path.substringAfterLast('/').substringBeforeLast('.')
+                .lowercase().replace('_', ' ')
+            return trackWords.count { word -> thumbName.contains(word) }
+        }
+
+        val scored = available.map { it to thumbScore(it) }
+        val maxScore = scored.maxOf { it.second }
+
+        // Keyword hit — return best match
+        if (maxScore > 0) {
+            val best = scored.filter { it.second == maxScore }.map { it.first }
+            return best.random(Random(seed))
+        }
+
+        // No keyword match — restrict to folder category pool to avoid absurd mismatches
+        val categoryKeywords = folderCategoryKeywords[folderName.lowercase().replace(' ', '-')]
+        if (categoryKeywords != null) {
+            val categoryPool = available.filter { path ->
+                val thumbName = path.substringAfterLast('/').substringBeforeLast('.')
+                    .lowercase().replace('_', ' ')
+                categoryKeywords.any { kw -> thumbName.contains(kw) }
+            }
+            if (categoryPool.isNotEmpty()) return categoryPool.random(Random(seed))
+        }
+
+        // Last resort — anything available
+        return available.random(Random(seed))
+    }
 
     override fun onCleared() {
         super.onCleared()

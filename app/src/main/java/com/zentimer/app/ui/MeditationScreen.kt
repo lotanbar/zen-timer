@@ -2,6 +2,8 @@ package com.zentimer.app.ui
 
 import android.media.MediaPlayer
 import android.net.Uri
+import com.zentimer.app.ui.BUNDLED_TRACKS
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,6 +33,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import android.os.SystemClock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -49,7 +53,7 @@ fun MeditationScreen(
     val ambienceLoopFadeMs = 5_000L
     val ambienceSessionEndFadeMs = 10_000L
     val bellFadeInMs = 150L
-    val bellTargetVolume = 0.2f
+    val bellTargetVolume = 0.5f
 
     val context = LocalContext.current
     var remaining by remember(totalSeconds) {
@@ -84,15 +88,21 @@ fun MeditationScreen(
     LaunchedEffect(totalSeconds, assetTreeUri, ambienceRelativePath, endingBellRelativePath) {
         val root = openAssetRoot(context, assetTreeUri)
 
-        fun resolve(relativePath: String?): Uri? {
+        suspend fun resolve(relativePath: String?): Uri? {
+            val bundled = BUNDLED_TRACKS.firstOrNull { it.sentinelPath == relativePath }
+            if (bundled != null)
+                return Uri.parse("android.resource://com.zentimer.app/raw/${bundled.resName}")
             if (root == null || relativePath.isNullOrBlank()) return null
             val parts = relativePath.split('/').filter { it.isNotBlank() }
-            var current: DocumentFile = root
-            for (p in parts) {
-                val next = current.listFiles().firstOrNull { it.name == p } ?: return null
-                current = next
+            return withContext(Dispatchers.IO) {
+                var current: DocumentFile = root
+                for (p in parts) {
+                    val next = current.listFiles().firstOrNull { it.name == p }
+                        ?: return@withContext null
+                    current = next
+                }
+                if (current.isFile) current.uri else null
             }
-            return if (current.isFile) current.uri else null
         }
 
         suspend fun fadePlayer(
@@ -175,16 +185,20 @@ fun MeditationScreen(
             }
         }
 
-        fun resolveDurationMs(uri: Uri?): Long {
+        suspend fun resolveDurationMs(uri: Uri?): Long {
             if (uri == null) return 3_000L
             return try {
-                val player = MediaPlayer().apply {
-                    setDataSource(context, uri)
-                    prepare()
+                withContext(Dispatchers.IO) {
+                    val player = MediaPlayer().apply {
+                        setDataSource(context, uri)
+                        prepare()
+                    }
+                    try {
+                        player.duration.toLong().coerceAtLeast(1L)
+                    } finally {
+                        player.release()
+                    }
                 }
-                val d = player.duration.toLong().coerceAtLeast(1L)
-                player.release()
-                d
             } catch (_: Exception) {
                 3_000L
             }
@@ -193,14 +207,18 @@ fun MeditationScreen(
         val ambienceUri = resolve(ambienceRelativePath)
         val ambience = if (ambienceUri != null) {
             try {
-                MediaPlayer().apply {
-                    setDataSource(context, ambienceUri)
-                    isLooping = false
-                    prepare()
-                    setVolume(0f, 0f)
-                    start()
+                val player = withContext(Dispatchers.IO) {
+                    MediaPlayer().apply {
+                        setDataSource(context, ambienceUri)
+                        isLooping = false
+                        prepare()
+                        setVolume(0f, 0f)
+                    }
                 }
-            } catch (_: Exception) {
+                player.start()
+                player
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 null
             }
         } else {
@@ -218,10 +236,11 @@ fun MeditationScreen(
             ambienceFadeJob?.cancel()
             val from = ambienceVolume
             ambienceFadeJob = launch {
-                val stepMs = 50L
-                val steps = (durationMs / stepMs).coerceAtLeast(1L).toInt()
-                repeat(steps) { step ->
-                    val t = (step + 1).toFloat() / steps.toFloat()
+                val fadeStart = SystemClock.elapsedRealtime()
+                while (true) {
+                    delay(50)
+                    val elapsed = (SystemClock.elapsedRealtime() - fadeStart).toFloat()
+                    val t = (elapsed / durationMs.toFloat()).coerceIn(0f, 1f)
                     val eased = (t * t * (3f - (2f * t))).coerceIn(0f, 1f)
                     val v = from + ((target - from) * eased)
                     ambienceVolume = v
@@ -230,7 +249,7 @@ fun MeditationScreen(
                     } catch (_: Exception) {
                         return@launch
                     }
-                    delay(stepMs)
+                    if (t >= 1f) break
                 }
                 ambienceVolume = target
             }
@@ -239,76 +258,121 @@ fun MeditationScreen(
         if (ambience != null && totalSeconds > 0) {
             ambiencePlaybackJob = launch {
                 var preloadedPlayer: MediaPlayer? = null
+                Log.d("ZenAmbience", "Playback job started, remaining=$remaining")
 
                 while (remaining > 0) {
-                    val player: MediaPlayer = when {
-                        ambiencePlayer != null -> ambiencePlayer!!
-                        preloadedPlayer != null -> preloadedPlayer!!.also {
-                            preloadedPlayer = null
-                            it.start()
+                    Log.d("ZenAmbience", "Outer loop top: remaining=$remaining ambiencePlayer=${ambiencePlayer!=null} preloadedPlayer=${preloadedPlayer!=null}")
+                    val playerCandidate: MediaPlayer? = when {
+                        ambiencePlayer != null -> {
+                            Log.d("ZenAmbience", "Branch: reusing existing ambiencePlayer")
+                            ambiencePlayer!!
+                        }
+                        preloadedPlayer != null -> {
+                            Log.d("ZenAmbience", "Branch: using preloadedPlayer")
+                            preloadedPlayer!!.also {
+                                preloadedPlayer = null
+                                it.start()
+                            }
+                        }
+                        ambienceUri == null -> {
+                            Log.d("ZenAmbience", "Branch: ambienceUri null, breaking")
+                            break
                         }
                         else -> {
-                            if (ambienceUri == null) break
+                            Log.d("ZenAmbience", "Branch: creating new player from URI")
                             try {
                                 withContext(Dispatchers.IO) {
-                                    MediaPlayer().apply {
-                                        setDataSource(context, ambienceUri)
-                                        isLooping = false
-                                        prepare()
-                                        setVolume(0f, 0f)
+                                    val mp = MediaPlayer()
+                                    try {
+                                        mp.setDataSource(context, ambienceUri)
+                                        mp.isLooping = false
+                                        mp.prepare()
+                                        mp.setVolume(0f, 0f)
+                                        mp
+                                    } catch (e: Exception) {
+                                        mp.release()
+                                        throw e
                                     }
                                 }.also { it.start() }
-                            } catch (_: Exception) {
+                            } catch (e: Exception) {
+                                Log.d("ZenAmbience", "New player creation failed: $e")
+                                if (e is CancellationException) throw e
                                 null
                             }
                         }
-                    } ?: break
+                    }
+                    if (playerCandidate == null) {
+                        Log.d("ZenAmbience", "playerCandidate null, retrying in 1s")
+                        delay(1_000L)
+                        continue
+                    }
+                    val player = playerCandidate
+                    Log.d("ZenAmbience", "Player ready: duration=${player.duration}ms isPlaying=${player.isPlaying}")
 
                     ambiencePlayer = player
                     ambienceVolume = 0f
                     ambienceFadeOutInProgress = false
                     startAmbienceFade(target = 1f, durationMs = ambienceLoopFadeMs)
 
-                    val durationMs = player.duration.coerceAtLeast(ambienceLoopFadeMs.toInt())
-                    val loopFadeStartMs = (durationMs - ambienceLoopFadeMs.toInt()).coerceAtLeast(0)
-                    if (!finalSessionFadeStarted) {
-                        launch {
-                            delay(loopFadeStartMs.toLong())
-                            if (!finalSessionFadeStarted && !ambienceFadeOutInProgress) {
+                    // Poll playback position (driven by the audio decoder, not the Handler)
+                    // so fade-out and preload trigger at the right time even under Doze mode.
+                    var preloadLaunched = false
+                    while (true) {
+                        delay(200)
+                        val pos: Int
+                        val playing: Boolean
+                        try {
+                            pos = player.currentPosition
+                            playing = player.isPlaying
+                        } catch (_: Exception) {
+                            Log.d("ZenAmbience", "Inner loop: exception reading player state, breaking")
+                            break
+                        }
+                        val timeLeft = (player.duration - pos).toLong()
+                        if (!finalSessionFadeStarted && timeLeft <= ambienceLoopFadeMs) {
+                            if (!ambienceFadeOutInProgress) {
+                                Log.d("ZenAmbience", "Triggering fade-out: timeLeft=${timeLeft}ms pos=${pos}ms dur=${player.duration}ms")
                                 ambienceFadeOutInProgress = true
                                 startAmbienceFade(target = 0f, durationMs = ambienceLoopFadeMs)
                             }
-                            // Pre-load the next player during the fade-out window so it is
-                            // ready immediately when the current track ends, avoiding a gap.
-                            if (!finalSessionFadeStarted && ambienceUri != null && preloadedPlayer == null) {
-                                val loaded = try {
-                                    withContext(Dispatchers.IO) {
-                                        MediaPlayer().apply {
-                                            setDataSource(context, ambienceUri)
-                                            isLooping = false
-                                            prepare()
-                                            setVolume(0f, 0f)
+                            if (!preloadLaunched && preloadedPlayer == null) {
+                                preloadLaunched = true
+                                Log.d("ZenAmbience", "Launching preload")
+                                launch {
+                                    val loaded = try {
+                                        withContext(Dispatchers.IO) {
+                                            val mp = MediaPlayer()
+                                            try {
+                                                mp.setDataSource(context, ambienceUri!!)
+                                                mp.isLooping = false
+                                                mp.prepare()
+                                                mp.setVolume(0f, 0f)
+                                                mp
+                                            } catch (e: Exception) {
+                                                mp.release()
+                                                throw e
+                                            }
                                         }
+                                    } catch (e: Exception) {
+                                        Log.d("ZenAmbience", "Preload failed: $e")
+                                        if (e is CancellationException) throw e
+                                        null
                                     }
-                                } catch (_: Exception) {
-                                    null
-                                }
-                                if (!finalSessionFadeStarted) {
-                                    preloadedPlayer = loaded
-                                } else {
-                                    loaded?.release()
+                                    Log.d("ZenAmbience", "Preload done: loaded=${loaded!=null} finalFade=$finalSessionFadeStarted")
+                                    if (!finalSessionFadeStarted) preloadedPlayer = loaded
+                                    else loaded?.release()
                                 }
                             }
                         }
+                        if (!playing) {
+                            Log.d("ZenAmbience", "Inner loop: !playing detected, pos=${pos}ms dur=${player.duration}ms")
+                            break
+                        }
                     }
-
-                    delay(durationMs.toLong())
-                    try {
-                        player.stop()
-                    } catch (_: Exception) {
-                    }
+                    try { player.stop() } catch (_: Exception) {}
                     player.release()
                     ambiencePlayer = null
+                    Log.d("ZenAmbience", "Track ended, released. finalSessionFadeStarted=$finalSessionFadeStarted remaining=$remaining")
 
                     // If session fade-out already started, do not restart ambience. Wait remaining time.
                     if (finalSessionFadeStarted) {
@@ -320,7 +384,7 @@ fun MeditationScreen(
                         break
                     }
                 }
-
+                Log.d("ZenAmbience", "Playback job exiting outer loop")
                 preloadedPlayer?.release()
                 preloadedPlayer = null
             }
@@ -333,6 +397,7 @@ fun MeditationScreen(
         val sequenceLeadSeconds = ((sequenceDurationMs + 999L) / 1_000L).toInt()
         var sequenceStarted = false
 
+        var tickBase = SystemClock.elapsedRealtime()
         while (remaining > 0) {
             if (canPlayFourBeforeEnd && !sequenceStarted && remaining <= sequenceLeadSeconds) {
                 sequenceStarted = true
@@ -344,10 +409,16 @@ fun MeditationScreen(
             }
             if (isPaused) {
                 delay(200)
+                tickBase = SystemClock.elapsedRealtime()
                 continue
             }
-            delay(1000)
-            if (!isPaused) remaining -= 1
+            delay(200)
+            val now = SystemClock.elapsedRealtime()
+            val elapsed = ((now - tickBase) / 1000L).toInt()
+            if (elapsed >= 1) {
+                remaining = (remaining - elapsed).coerceAtLeast(0)
+                tickBase += elapsed * 1000L
+            }
         }
 
         // At timer end: if session was too short for 4 bells, play a single ending bell.
