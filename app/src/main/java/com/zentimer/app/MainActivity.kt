@@ -30,6 +30,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.zentimer.app.ui.BUNDLED_TRACKS
+import com.zentimer.app.ui.NO_AMBIENCE_PATH
 import com.zentimer.app.ui.SelectableTrack
 import com.zentimer.app.ui.TrackSelectionScreen
 import com.zentimer.app.ui.MainScreen
@@ -60,6 +62,9 @@ class MainActivity : ComponentActivity() {
                         val observer = LifecycleEventObserver { _, event ->
                             if (event == Lifecycle.Event.ON_RESUME) {
                                 hasAllFilesPermission = Environment.isExternalStorageManager()
+                            }
+                            if (event == Lifecycle.Event.ON_STOP) {
+                                viewModel.onAppBackgrounded()
                             }
                         }
                         lifecycleOwner.lifecycle.addObserver(observer)
@@ -122,11 +127,15 @@ class MainActivity : ComponentActivity() {
                         composable("ambience_picker") {
                             TrackSelectionScreen(
                                 assetPath = uiState.assetPath,
-                                tracks = uiState.ambienceTracks.map {
-                                    SelectableTrack(it.relativePath, it.thumbnailRelativePath)
-                                },
+                                tracks = uiState.ambienceTracks
+                                    .map { SelectableTrack(it.relativePath, it.thumbnailRelativePath) },
                                 selectedPath = uiState.selectedAmbiencePath,
                                 imagePadded = false,
+                                showNoneOption = true,
+                                isNoneSelected = uiState.selectedAmbiencePath == NO_AMBIENCE_PATH,
+                                onNoneSelected = { viewModel.selectNoAmbience() },
+                                bundledTracks = BUNDLED_TRACKS,
+                                onBundledSelected = { viewModel.selectBundledAmbience(it) },
                                 onTrackTapped = { viewModel.onAmbienceTileTapped(uiState.ambienceTracks.first { t -> t.relativePath == it.relativePath }) },
                                 onShuffle = viewModel::shuffleAmbienceSelection,
                                 onRefresh = viewModel::refreshAmbienceTracks,
@@ -168,7 +177,7 @@ class MainActivity : ComponentActivity() {
                             MeditationScreen(
                                 totalSeconds = uiState.durationSeconds,
                                 assetTreeUri = uiState.assetPath,
-                                ambienceRelativePath = uiState.selectedAmbiencePath,
+                                ambienceRelativePath = uiState.selectedAmbiencePath?.takeIf { it != NO_AMBIENCE_PATH },
                                 endingBellRelativePath = uiState.selectedBellPath,
                                 onSessionFinished = { navController.popBackStack("main", false) }
                             )

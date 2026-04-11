@@ -19,6 +19,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.filled.Forest
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Button
@@ -31,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 data class SelectableTrack(
@@ -54,6 +57,11 @@ fun TrackSelectionScreen(
     tracks: List<SelectableTrack>,
     selectedPath: String?,
     imagePadded: Boolean = false,
+    showNoneOption: Boolean = false,
+    isNoneSelected: Boolean = false,
+    onNoneSelected: () -> Unit = {},
+    bundledTracks: List<BundledAmbienceTrack> = emptyList(),
+    onBundledSelected: (BundledAmbienceTrack) -> Unit = {},
     onTrackTapped: (SelectableTrack) -> Unit,
     onTrackConfirmed: ((SelectableTrack) -> Unit)? = null,
     onShuffle: () -> Unit,
@@ -87,6 +95,71 @@ fun TrackSelectionScreen(
                 horizontalArrangement = Arrangement.spacedBy(spacing),
                 verticalArrangement = Arrangement.spacedBy(spacing)
             ) {
+                if (showNoneOption) {
+                    item(key = "none") {
+                        val border = if (isNoneSelected) BorderStroke(3.dp, MaterialTheme.colorScheme.onSurface) else null
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f)
+                                .clickable { onNoneSelected() },
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            border = border
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.VolumeOff,
+                                    contentDescription = "No ambience",
+                                    modifier = Modifier.size(24.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "None",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+                bundledTracks.forEach { bundled ->
+                    item(key = "bundled_${bundled.sentinelPath}") {
+                        val isSelected = selectedPath == bundled.sentinelPath
+                        val border = if (isSelected) BorderStroke(3.dp, MaterialTheme.colorScheme.onSurface) else null
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f)
+                                .clickable { onBundledSelected(bundled) },
+                            shape = MaterialTheme.shapes.medium,
+                            color = Color(0xFF2D6A4F),
+                            border = border
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Forest,
+                                    contentDescription = bundled.label,
+                                    modifier = Modifier.size(28.dp),
+                                    tint = Color(0xFFB7E4C7)
+                                )
+                                Text(
+                                    text = bundled.label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFFB7E4C7)
+                                )
+                            }
+                        }
+                    }
+                }
                 items(tracks, key = { it.relativePath }) { track ->
                     val isSelected = selectedPath == track.relativePath
                     val border = if (isSelected) BorderStroke(3.dp, MaterialTheme.colorScheme.onSurface) else null
