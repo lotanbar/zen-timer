@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -117,6 +118,7 @@ fun MainScreen(
                 value = uiState.selectedAmbience ?: "Not selected",
                 assetTreeUri = uiState.assetPath,
                 thumbnailRelativePath = selectedAmbienceThumb,
+                isNoneSelected = uiState.selectedAmbiencePath == NO_AMBIENCE_PATH,
                 onAction = onPickAmbience
             )
             SelectionCard(
@@ -239,6 +241,7 @@ private fun SelectionCard(
     value: String,
     assetTreeUri: String?,
     thumbnailRelativePath: String?,
+    isNoneSelected: Boolean = false,
     onAction: () -> Unit
 ) {
     Card(
@@ -284,6 +287,13 @@ private fun SelectionCard(
                         shape = null
                     )
                 }
+            } else if (isNoneSelected) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "No ambience",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(24.dp)
+                )
             } else {
                 Icon(
                     imageVector = Icons.Filled.AccessTime,
