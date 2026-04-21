@@ -38,7 +38,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
@@ -52,7 +51,7 @@ fun MeditationScreen(
 ) {
     val ambienceLoopFadeMs = 5_000L
     val ambienceSessionEndFadeMs = 10_000L
-    val bellFadeInMs = 150L
+    val bellFadeInMs = 1_000L
     val bellTargetVolume = 0.5f
 
     val context = LocalContext.current
@@ -115,7 +114,7 @@ fun MeditationScreen(
             val steps = (durationMs / stepMs).coerceAtLeast(1L).toInt()
             repeat(steps) { step ->
                 val t = (step + 1).toFloat() / steps.toFloat()
-                val eased = (t * t * (3f - (2f * t))).coerceIn(0f, 1f)
+                val eased = (t * t * t * (t * (t * 6f - 15f) + 10f)).coerceIn(0f, 1f)
                 val v = from + ((to - from) * eased)
                 try {
                     player.setVolume(v, v)
@@ -123,42 +122,6 @@ fun MeditationScreen(
                     return
                 }
                 delay(stepMs)
-            }
-        }
-
-        suspend fun playOneShotAndWait(uri: Uri?) {
-            if (uri == null) return
-            try {
-                suspendCancellableCoroutine { continuation ->
-                    val player = MediaPlayer().apply {
-                        setDataSource(context, uri)
-                        isLooping = false
-                        setOnCompletionListener {
-                            try {
-                                it.release()
-                            } catch (_: Exception) {
-                            }
-                            oneShotPlayers.remove(it)
-                            if (continuation.isActive) {
-                                continuation.resume(Unit)
-                            }
-                        }
-                        prepare()
-                        setVolume(bellTargetVolume, bellTargetVolume)
-                        start()
-                    }
-                    oneShotPlayers += player
-                    launch { fadePlayer(player, from = 0.3f, to = bellTargetVolume, durationMs = bellFadeInMs) }
-                    continuation.invokeOnCancellation {
-                        try {
-                            if (player.isPlaying) player.stop()
-                        } catch (_: Exception) {
-                        }
-                        player.release()
-                        oneShotPlayers.remove(player)
-                    }
-                }
-            } catch (_: Exception) {
             }
         }
 
@@ -176,31 +139,12 @@ fun MeditationScreen(
                         oneShotPlayers.remove(it)
                     }
                     prepare()
-                    setVolume(bellTargetVolume, bellTargetVolume)
+                    setVolume(0f, 0f)
                     start()
                 }
                 oneShotPlayers += player
-                launch { fadePlayer(player, from = 0.3f, to = bellTargetVolume, durationMs = bellFadeInMs) }
+                launch { fadePlayer(player, from = 0f, to = bellTargetVolume, durationMs = bellFadeInMs) }
             } catch (_: Exception) {
-            }
-        }
-
-        suspend fun resolveDurationMs(uri: Uri?): Long {
-            if (uri == null) return 3_000L
-            return try {
-                withContext(Dispatchers.IO) {
-                    val player = MediaPlayer().apply {
-                        setDataSource(context, uri)
-                        prepare()
-                    }
-                    try {
-                        player.duration.toLong().coerceAtLeast(1L)
-                    } finally {
-                        player.release()
-                    }
-                }
-            } catch (_: Exception) {
-                3_000L
             }
         }
 
@@ -391,21 +335,18 @@ fun MeditationScreen(
         }
 
         val endingUri = resolve(endingBellRelativePath)
-        val singleBellDurationMs = resolveDurationMs(endingUri)
-        val canPlayFourBeforeEnd = totalSeconds >= 10 * 60
-        val sequenceDurationMs = singleBellDurationMs * 4L
-        val sequenceLeadSeconds = ((sequenceDurationMs + 999L) / 1_000L).toInt()
-        var sequenceStarted = false
+        var bell30Played = false
+        var bell15Played = false
 
         var tickBase = SystemClock.elapsedRealtime()
         while (remaining > 0) {
-            if (canPlayFourBeforeEnd && !sequenceStarted && remaining <= sequenceLeadSeconds) {
-                sequenceStarted = true
-                launch {
-                    repeat(4) {
-                        playOneShotAndWait(endingUri)
-                    }
-                }
+            if (!bell30Played && remaining <= 30) {
+                bell30Played = true
+                playOneShot(endingUri)
+            }
+            if (!bell15Played && remaining <= 15) {
+                bell15Played = true
+                playOneShot(endingUri)
             }
             if (isPaused) {
                 delay(200)
@@ -421,15 +362,13 @@ fun MeditationScreen(
             }
         }
 
-        // At timer end: if session was too short for 4 bells, play a single ending bell.
+        // Play final bell at session end.
         finalSessionFadeStarted = true
         if (!ambienceFadeOutInProgress) {
             ambienceFadeOutInProgress = true
             startAmbienceFade(target = 0f, durationMs = ambienceSessionEndFadeMs)
         }
-        if (!canPlayFourBeforeEnd) {
-            playOneShot(endingUri)
-        }
+        playOneShot(endingUri)
 
         // Keep meditation screen visible briefly, then return to main.
         delay(10_000L)
