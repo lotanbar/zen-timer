@@ -213,7 +213,7 @@ fun MeditationScreen(
 
             if (initialPP != null && totalSeconds > 0) {
                 ambiencePlaybackJob = launch {
-                    var pp = initialPP
+                    var pp = initialPP!!
                     var preloadedPP: PreparedPlayer? = null
                     Log.d("ZenAmbience", "Playback job started")
                     try {
