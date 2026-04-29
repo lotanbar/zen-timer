@@ -1,6 +1,7 @@
 package com.zentimer.app.ui
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.net.Uri
@@ -118,6 +119,11 @@ fun MeditationScreen(
     }
 
     LaunchedEffect(totalSeconds, assetTreeUri, ambienceRelativePath, endingBellRelativePath) {
+        // Start foreground service to keep process alive while screen is off.
+        // On Android 10+, audio background work requires a foreground service.
+        val serviceIntent = Intent(context, com.zentimer.app.MeditationForegroundService::class.java)
+        context.startForegroundService(serviceIntent)
+
         // Hold a partial wake lock for the session so the coroutine scheduler keeps running
         // while the screen is off. Timed acquire as a safety net against leaks.
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -312,6 +318,7 @@ fun MeditationScreen(
 
             onSessionFinished()
         } finally {
+            context.stopService(serviceIntent)
             if (wakeLock.isHeld) wakeLock.release()
         }
     }
