@@ -25,13 +25,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -39,6 +40,7 @@ import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -81,12 +83,27 @@ private suspend fun prepareAmbiencePlayer(context: Context, uri: Uri): PreparedP
         null
     }
 
+/** Resolves a relative path inside the asset tree to a content URI. */
+private suspend fun resolveAssetUri(context: Context, assetTreeUri: String, relativePath: String): Uri? =
+    withContext(Dispatchers.IO) {
+        val root = openAssetRoot(context, assetTreeUri) ?: return@withContext null
+        val parts = relativePath.split('/').filter { it.isNotBlank() }
+        var current: DocumentFile = root
+        for (p in parts) {
+            val next = current.listFiles().firstOrNull { it.name == p } ?: return@withContext null
+            current = next
+        }
+        if (current.isFile) current.uri else null
+    }
+
 @Composable
 fun MeditationScreen(
     totalSeconds: Int,
     assetTreeUri: String,
-    ambienceRelativePath: String?,
+    initialAmbienceRelativePath: String?,
     endingBellRelativePath: String?,
+    onNextAmbience: () -> String?,
+    onRemoveAmbience: (String) -> Unit,
     onSessionFinished: () -> Unit
 ) {
     val ambienceLoopFadeMs = 5_000L
@@ -94,17 +111,22 @@ fun MeditationScreen(
     val bellFadeInMs = 1_000L
     val bellTargetVolume = 0.5f
 
-    val context = LocalContext.current
-    var remaining by remember(totalSeconds) {
-        mutableIntStateOf(totalSeconds.coerceAtLeast(0))
-    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var remaining by remember(totalSeconds) { mutableIntStateOf(totalSeconds.coerceAtLeast(0)) }
     var isPaused by remember { mutableStateOf(false) }
+    var currentAmbiencePath by remember { mutableStateOf(initialAmbienceRelativePath) }
     var ambiencePlayer by remember { mutableStateOf<MediaPlayer?>(null) }
-    var ambiencePlaybackJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var ambiencePlaybackJob by remember { mutableStateOf<Job?>(null) }
+    var ambienceFadeJob by remember { mutableStateOf<Job?>(null) }
+    var ambienceVolume by remember { mutableFloatStateOf(0f) }
+    var finalSessionFadeStarted by remember { mutableStateOf(false) }
     val oneShotPlayers = remember { mutableListOf<MediaPlayer>() }
 
     DisposableEffect(Unit) {
         onDispose {
+            ambienceFadeJob?.cancel()
             ambiencePlaybackJob?.cancel()
             oneShotPlayers.forEach { player ->
                 try { if (player.isPlaying) player.stop() } catch (_: Exception) { }
@@ -118,14 +140,115 @@ fun MeditationScreen(
         }
     }
 
-    LaunchedEffect(totalSeconds, assetTreeUri, ambienceRelativePath, endingBellRelativePath) {
+    /** Smooth fade of the current ambience player. Does NOT cancel/start the playback loop. */
+    fun startAmbienceFade(target: Float, durationMs: Long) {
+        val active = ambiencePlayer ?: return
+        ambienceFadeJob?.cancel()
+        val from = ambienceVolume
+        ambienceFadeJob = scope.launch(Dispatchers.IO) {
+            val fadeStart = SystemClock.elapsedRealtime()
+            while (true) {
+                delay(50)
+                val elapsed = (SystemClock.elapsedRealtime() - fadeStart).toFloat()
+                val t = (elapsed / durationMs.toFloat()).coerceIn(0f, 1f)
+                val eased = (t * t * (3f - (2f * t))).coerceIn(0f, 1f)
+                val v = from + ((target - from) * eased)
+                ambienceVolume = v
+                try { active.setVolume(v, v) } catch (_: Exception) { return@launch }
+                if (t >= 1f) break
+            }
+            ambienceVolume = target
+        }
+    }
+
+    /** Starts the seamless looping ambience playback job for the given URI. */
+    fun startAmbienceLoop(ambienceUri: Uri) {
+        ambienceFadeJob?.cancel()
+        ambiencePlaybackJob?.cancel()
+        ambiencePlayer?.run {
+            try { if (isPlaying) stop() } catch (_: Exception) { }
+            release()
+        }
+        ambiencePlayer = null
+        ambienceVolume = 0f
+
+        ambiencePlaybackJob = scope.launch {
+            var pp = prepareAmbiencePlayer(context, ambienceUri) ?: return@launch
+            pp.player.start()
+            ambiencePlayer = pp.player
+            var preloadedPP: PreparedPlayer? = null
+            Log.d("ZenAmbience", "Playback job started")
+            try {
+                while (remaining > 0 && !finalSessionFadeStarted) {
+                    val player = pp.player
+                    val durationMs = player.duration.toLong()
+                    ambienceVolume = 0f
+                    startAmbienceFade(target = 1f, durationMs = ambienceLoopFadeMs)
+
+                    if (durationMs > ambienceLoopFadeMs) {
+                        delay(durationMs - ambienceLoopFadeMs)
+                        if (!finalSessionFadeStarted) {
+                            startAmbienceFade(target = 0f, durationMs = ambienceLoopFadeMs)
+                            if (preloadedPP == null) {
+                                launch {
+                                    val next = prepareAmbiencePlayer(context, ambienceUri)
+                                    if (!finalSessionFadeStarted) preloadedPP = next
+                                    else next?.player?.release()
+                                }
+                            }
+                        }
+                    }
+
+                    pp.completion.await()
+
+                    try { player.stop() } catch (_: Exception) { }
+                    player.release()
+                    ambiencePlayer = null
+                    Log.d("ZenAmbience", "Track ended. finalFade=$finalSessionFadeStarted remaining=$remaining")
+
+                    if (finalSessionFadeStarted || remaining <= 0) break
+
+                    val nextPP = preloadedPP?.also { preloadedPP = null }
+                        ?: prepareAmbiencePlayer(context, ambienceUri)
+                    if (nextPP == null) break
+
+                    nextPP.player.start()
+                    ambiencePlayer = nextPP.player
+                    pp = nextPP
+                }
+            } finally {
+                preloadedPP?.player?.release()
+                preloadedPP = null
+            }
+            Log.d("ZenAmbience", "Playback job exiting")
+        }
+    }
+
+    /** Switches to a new ambience path immediately (hard cut — no crossfade). */
+    fun switchAmbience(newPath: String?) {
+        currentAmbiencePath = newPath
+        if (newPath == null || finalSessionFadeStarted) {
+            ambienceFadeJob?.cancel()
+            ambiencePlaybackJob?.cancel()
+            ambiencePlayer?.run {
+                try { if (isPlaying) stop() } catch (_: Exception) { }
+                release()
+            }
+            ambiencePlayer = null
+            return
+        }
+        scope.launch {
+            val uri = resolveAssetUri(context, assetTreeUri, newPath) ?: return@launch
+            startAmbienceLoop(uri)
+        }
+    }
+
+    LaunchedEffect(totalSeconds, assetTreeUri, initialAmbienceRelativePath, endingBellRelativePath) {
         // Start foreground service to keep process alive while screen is off.
-        // On Android 10+, audio background work requires a foreground service.
         val serviceIntent = Intent(context, com.zentimer.app.MeditationForegroundService::class.java)
         context.startForegroundService(serviceIntent)
 
-        // Hold a partial wake lock for the session so the coroutine scheduler keeps running
-        // while the screen is off. Timed acquire as a safety net against leaks.
+        // Hold a partial wake lock for the session so the coroutine scheduler keeps running.
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         val wakeLock = pm.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
@@ -133,23 +256,9 @@ fun MeditationScreen(
         ).apply { acquire((totalSeconds.toLong() + 120L) * 1000L) }
 
         try {
-            val root = openAssetRoot(context, assetTreeUri)
-
-            suspend fun resolve(relativePath: String?): Uri? {
-                val bundled = BUNDLED_TRACKS.firstOrNull { it.sentinelPath == relativePath }
-                if (bundled != null)
-                    return Uri.parse("android.resource://com.zentimer.app/raw/${bundled.resName}")
-                if (root == null || relativePath.isNullOrBlank()) return null
-                val parts = relativePath.split('/').filter { it.isNotBlank() }
-                return withContext(Dispatchers.IO) {
-                    var current: DocumentFile = root
-                    for (p in parts) {
-                        val next = current.listFiles().firstOrNull { it.name == p }
-                            ?: return@withContext null
-                        current = next
-                    }
-                    if (current.isFile) current.uri else null
-                }
+            suspend fun resolveUri(relativePath: String?): Uri? {
+                if (relativePath.isNullOrBlank()) return null
+                return resolveAssetUri(context, assetTreeUri, relativePath)
             }
 
             suspend fun fadePlayer(player: MediaPlayer, from: Float, to: Float, durationMs: Long) {
@@ -185,94 +294,13 @@ fun MeditationScreen(
                 } catch (_: Exception) { }
             }
 
-            val ambienceUri = resolve(ambienceRelativePath)
-            val initialPP = if (ambienceUri != null) {
-                prepareAmbiencePlayer(context, ambienceUri)?.also { pp ->
-                    pp.player.start()
-                    ambiencePlayer = pp.player
-                }
-            } else null
-
-            var finalSessionFadeStarted = false
-            var ambienceVolume = 0f
-            var ambienceFadeJob: kotlinx.coroutines.Job? = null
-
-            fun startAmbienceFade(target: Float, durationMs: Long) {
-                val active = ambiencePlayer ?: return
-                ambienceFadeJob?.cancel()
-                val from = ambienceVolume
-                ambienceFadeJob = launch {
-                    val fadeStart = SystemClock.elapsedRealtime()
-                    while (true) {
-                        delay(50)
-                        val elapsed = (SystemClock.elapsedRealtime() - fadeStart).toFloat()
-                        val t = (elapsed / durationMs.toFloat()).coerceIn(0f, 1f)
-                        val eased = (t * t * (3f - (2f * t))).coerceIn(0f, 1f)
-                        val v = from + ((target - from) * eased)
-                        ambienceVolume = v
-                        try { active.setVolume(v, v) } catch (_: Exception) { return@launch }
-                        if (t >= 1f) break
-                    }
-                    ambienceVolume = target
-                }
+            // Start initial ambience
+            val initialUri = resolveUri(initialAmbienceRelativePath)
+            if (initialUri != null && totalSeconds > 0) {
+                startAmbienceLoop(initialUri)
             }
 
-            if (initialPP != null && totalSeconds > 0) {
-                ambiencePlaybackJob = launch {
-                    var pp = initialPP!!
-                    var preloadedPP: PreparedPlayer? = null
-                    Log.d("ZenAmbience", "Playback job started")
-                    try {
-                        while (remaining > 0) {
-                            val player = pp.player
-                            val durationMs = player.duration.toLong()
-                            ambienceVolume = 0f
-                            startAmbienceFade(target = 1f, durationMs = ambienceLoopFadeMs)
-
-                            // Schedule fade-out and preload only when duration is known.
-                            // For unknown duration (<=0) we skip crossfade and just await completion.
-                            if (durationMs > ambienceLoopFadeMs) {
-                                delay(durationMs - ambienceLoopFadeMs)
-                                if (!finalSessionFadeStarted) {
-                                    startAmbienceFade(target = 0f, durationMs = ambienceLoopFadeMs)
-                                    if (preloadedPP == null) {
-                                        launch {
-                                            val next = prepareAmbiencePlayer(context, ambienceUri!!)
-                                            if (!finalSessionFadeStarted) preloadedPP = next
-                                            else next?.player?.release()
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Await natural completion — no polling needed.
-                            // CompletableDeferred was registered before start(), so no race.
-                            pp.completion.await()
-
-                            try { player.stop() } catch (_: Exception) { }
-                            player.release()
-                            ambiencePlayer = null
-                            Log.d("ZenAmbience", "Track ended. finalFade=$finalSessionFadeStarted remaining=$remaining")
-
-                            if (finalSessionFadeStarted || remaining <= 0) break
-
-                            val nextPP = preloadedPP?.also { preloadedPP = null }
-                                ?: prepareAmbiencePlayer(context, ambienceUri!!)
-                            if (nextPP == null) break
-
-                            nextPP.player.start()
-                            ambiencePlayer = nextPP.player
-                            pp = nextPP
-                        }
-                    } finally {
-                        preloadedPP?.player?.release()
-                        preloadedPP = null
-                    }
-                    Log.d("ZenAmbience", "Playback job exiting")
-                }
-            }
-
-            val endingUri = resolve(endingBellRelativePath)
+            val endingUri = resolveUri(endingBellRelativePath)
             var bell30Played = false
             var bell15Played = false
 
@@ -300,12 +328,11 @@ fun MeditationScreen(
                 }
             }
 
-            // Session end: start fade-out and play final bell.
+            // Session end: fade out ambience and play final bell.
             finalSessionFadeStarted = true
             startAmbienceFade(target = 0f, durationMs = ambienceSessionEndFadeMs)
             playOneShot(endingUri)
 
-            // Keep meditation screen visible briefly, then clean up and return.
             delay(10_000L)
 
             ambienceFadeJob?.cancel()
@@ -356,44 +383,65 @@ fun MeditationScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Pause / Resume
             Button(
                 modifier = Modifier.weight(1f),
                 onClick = {
                     isPaused = !isPaused
                     ambiencePlayer?.let { player ->
                         try {
-                            if (isPaused) {
-                                if (player.isPlaying) player.pause()
-                            } else {
-                                player.start()
-                            }
-                        } catch (_: Exception) {
-                        }
+                            if (isPaused) { if (player.isPlaying) player.pause() }
+                            else player.start()
+                        } catch (_: Exception) { }
                     }
                 }
             ) {
                 Text(if (isPaused) "Resume" else "Pause")
             }
+
+            // Next (shuffle another ambience — hard cut)
+            Button(
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    val next = onNextAmbience() ?: return@Button
+                    switchAmbience(next)
+                },
+                enabled = !finalSessionFadeStarted
+            ) {
+                Text("Next")
+            }
+
+            // Remove (delete file + pick another — hard cut)
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                shape = MaterialTheme.shapes.extraLarge,
+                onClick = {
+                    val toRemove = currentAmbiencePath ?: return@OutlinedButton
+                    onRemoveAmbience(toRemove)
+                    val next = onNextAmbience()
+                    switchAmbience(next)
+                },
+                enabled = currentAmbiencePath != null && !finalSessionFadeStarted,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text("Remove")
+            }
+
+            // Stop
             OutlinedButton(
                 modifier = Modifier.weight(1f),
                 shape = MaterialTheme.shapes.extraLarge,
                 onClick = {
                     oneShotPlayers.forEach { player ->
-                        try {
-                            if (player.isPlaying) player.stop()
-                        } catch (_: Exception) {
-                        }
+                        try { if (player.isPlaying) player.stop() } catch (_: Exception) { }
                         player.release()
                     }
                     oneShotPlayers.clear()
                     ambiencePlaybackJob?.cancel()
                     ambiencePlayer?.run {
-                        try {
-                            if (isPlaying) stop()
-                        } catch (_: Exception) {
-                        }
+                        try { if (isPlaying) stop() } catch (_: Exception) { }
                         release()
                     }
                     ambiencePlayer = null
@@ -406,3 +454,4 @@ fun MeditationScreen(
         }
     }
 }
+
