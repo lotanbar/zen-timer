@@ -24,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -68,18 +69,35 @@ fun MainScreen(
             .navigationBarsPadding()
     ) {
         // ── Timer picker — centered ───────────────────────────────────────────
-        Row(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Surface(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 24.dp),
+            shape = RoundedCornerShape(28.dp),
+            tonalElevation = 4.dp,
+            color = MaterialTheme.colorScheme.surfaceVariant
         ) {
-            TimeWheel(value = hours, max = 99) { hours = it }
-            Text(":", style = MaterialTheme.typography.displayMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TimeWheel(value = minutes, max = 59) { minutes = it }
-            Text(":", style = MaterialTheme.typography.displayMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TimeWheel(value = seconds, max = 59) { seconds = it }
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 28.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TimeWheel(value = hours, max = 99) { hours = it }
+                Text(
+                    ":",
+                    style = MaterialTheme.typography.displayLarge,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TimeWheel(value = minutes, max = 59) { minutes = it }
+                Text(
+                    ":",
+                    style = MaterialTheme.typography.displayLarge,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TimeWheel(value = seconds, max = 59) { seconds = it }
+            }
         }
 
         // ── Validator + Start — pinned to bottom ──────────────────────────────
@@ -157,7 +175,7 @@ fun MainScreen(
 
 @Composable
 private fun TimeWheel(value: Int, max: Int, onValueChange: (Int) -> Unit) {
-    Box(modifier = Modifier.width(88.dp)) {
+    Box(modifier = Modifier.width(80.dp)) {
         AndroidView(
             factory = { ctx ->
                 NumberPicker(ctx).apply {
@@ -170,6 +188,7 @@ private fun TimeWheel(value: Int, max: Int, onValueChange: (Int) -> Unit) {
                     wrapSelectorWheel = true
                     setFormatter { v -> "%02d".format(v) }
                     descendantFocusability = NumberPicker.FOCUS_BLOCK_DESCENDANTS
+                    textSize = 48f * ctx.resources.displayMetrics.scaledDensity
                     setOnValueChangedListener { _, _, newVal -> onValueChange(newVal) }
                 }
             },
