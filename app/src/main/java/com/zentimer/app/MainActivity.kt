@@ -30,13 +30,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.zentimer.app.ui.BUNDLED_TRACKS
-import com.zentimer.app.ui.NO_AMBIENCE_PATH
-import com.zentimer.app.ui.SelectableTrack
-import com.zentimer.app.ui.TrackSelectionScreen
 import com.zentimer.app.ui.MainScreen
 import com.zentimer.app.ui.MeditationScreen
-import com.zentimer.app.ui.TimePickerScreen
 import com.zentimer.app.ui.ZenAppTheme
 import com.zentimer.app.ui.ZenTimerViewModel
 
@@ -54,8 +49,6 @@ class MainActivity : ComponentActivity() {
                     val viewModel: ZenTimerViewModel = viewModel()
                     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-                    // MANAGE_EXTERNAL_STORAGE — required for file-path based folder access.
-                    // Re-evaluated on every resume so granting in Settings is picked up immediately.
                     var hasAllFilesPermission by remember { mutableStateOf(Environment.isExternalStorageManager()) }
                     val lifecycleOwner = LocalLifecycleOwner.current
                     DisposableEffect(lifecycleOwner) {
@@ -63,17 +56,12 @@ class MainActivity : ComponentActivity() {
                             if (event == Lifecycle.Event.ON_RESUME) {
                                 hasAllFilesPermission = Environment.isExternalStorageManager()
                             }
-                            if (event == Lifecycle.Event.ON_STOP) {
-                                viewModel.onAppBackgrounded()
-                            }
                         }
                         lifecycleOwner.lifecycle.addObserver(observer)
                         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
                     }
 
                     var showAllFilesDialog by remember { mutableStateOf(!hasAllFilesPermission) }
-
-                    // Also show the dialog whenever permission is found missing at runtime.
                     fun promptForPermission() { showAllFilesDialog = true }
 
                     val allFilesSettingsLauncher = rememberLauncherForActivityResult(
@@ -108,68 +96,24 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    NavHost(
-                        navController = navController,
-                        startDestination = "main"
-                    ) {
+                    // Randomly selected tracks for the current/upcoming session
+                    var sessionAmbiencePath by remember { mutableStateOf<String?>(null) }
+                    var sessionBellPath by remember { mutableStateOf<String?>(null) }
+
+                    NavHost(navController = navController, startDestination = "main") {
                         composable("main") {
                             MainScreen(
                                 uiState = uiState,
                                 hasAllFilesPermission = hasAllFilesPermission,
-                                onPickTime = { navController.navigate("time_picker") },
-                                onPickAmbience = { navController.navigate("ambience_picker") },
-                                onPickBell = { navController.navigate("ending_bell_picker") },
                                 onSetAssetsPath = { viewModel.setAssetDirectory(it) },
                                 onPermissionMissing = ::promptForPermission,
-                                onStartMeditation = { navController.navigate("meditation") }
-                            )
-                        }
-                        composable("ambience_picker") {
-                            TrackSelectionScreen(
-                                assetPath = uiState.assetPath,
-                                tracks = uiState.ambienceTracks
-                                    .map { SelectableTrack(it.relativePath, it.thumbnailRelativePath) },
-                                selectedPath = uiState.selectedAmbiencePath,
-                                imagePadded = false,
-                                showNoneOption = true,
-                                isNoneSelected = uiState.selectedAmbiencePath == NO_AMBIENCE_PATH,
-                                onNoneSelected = { viewModel.selectNoAmbience() },
-                                bundledTracks = BUNDLED_TRACKS,
-                                onBundledSelected = { viewModel.selectBundledAmbience(it) },
-                                onTrackTapped = { viewModel.onAmbienceTileTapped(uiState.ambienceTracks.first { t -> t.relativePath == it.relativePath }) },
-                                onShuffle = viewModel::shuffleAmbienceSelection,
-                                onRefresh = viewModel::refreshAmbienceTracks,
-                                onScreenClosed = viewModel::onAmbienceScreenClosed,
-                                submitText = "Submit ambience",
-                                submitEnabled = uiState.selectedAmbiencePath != null,
-                                onSubmit = {
-                                    if (viewModel.submitAmbienceSelection()) navController.popBackStack()
-                                }
-                            )
-                        }
-                        composable("time_picker") {
-                            TimePickerScreen(
-                                initialTotalSeconds = uiState.durationSeconds,
-                                onSubmitDuration = viewModel::submitDuration,
-                                onClose = { navController.popBackStack() }
-                            )
-                        }
-                        composable("ending_bell_picker") {
-                            TrackSelectionScreen(
-                                assetPath = uiState.assetPath,
-                                tracks = uiState.bellTracks.map {
-                                    SelectableTrack(it.relativePath, it.thumbnailRelativePath)
-                                },
-                                selectedPath = uiState.selectedBellPath,
-                                imagePadded = true,
-                                onTrackTapped = { viewModel.onBellHighlighted(uiState.bellTracks.first { t -> t.relativePath == it.relativePath }) },
-                                onTrackConfirmed = { viewModel.onBellTapped(uiState.bellTracks.first { t -> t.relativePath == it.relativePath }) },
-                                onShuffle = viewModel::shuffleBellSelection,
-                                onScreenClosed = viewModel::onBellScreenClosed,
-                                submitText = "Submit ending bell",
-                                submitEnabled = uiState.selectedBellPath != null,
-                                onSubmit = {
-                                    if (viewModel.submitBellSelection()) navController.popBackStack()
+                                onStartMeditation = { hours, minutes, seconds ->
+                                    val accepted = viewModel.submitDuration(hours, minutes, seconds)
+                                    if (accepted) {
+                                        sessionAmbiencePath = viewModel.pickRandomAmbienceTrack()?.relativePath
+                                        sessionBellPath = viewModel.pickRandomBellTrack()?.relativePath
+                                        navController.navigate("meditation")
+                                    }
                                 }
                             )
                         }
@@ -177,8 +121,16 @@ class MainActivity : ComponentActivity() {
                             MeditationScreen(
                                 totalSeconds = uiState.durationSeconds,
                                 assetTreeUri = uiState.assetPath,
-                                ambienceRelativePath = uiState.selectedAmbiencePath?.takeIf { it != NO_AMBIENCE_PATH },
-                                endingBellRelativePath = uiState.selectedBellPath,
+                                initialAmbienceRelativePath = sessionAmbiencePath,
+                                endingBellRelativePath = sessionBellPath,
+                                onNextAmbience = {
+                                    viewModel.pickRandomAmbienceTrack(exclude = sessionAmbiencePath)
+                                        ?.relativePath
+                                        ?.also { sessionAmbiencePath = it }
+                                },
+                                onRemoveAmbience = { path ->
+                                    viewModel.removeAmbienceFile(path, uiState.assetPath)
+                                },
                                 onSessionFinished = { navController.popBackStack("main", false) }
                             )
                         }
@@ -187,5 +139,4 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
 }
