@@ -3,6 +3,7 @@ package com.zentimer.app.ui
 import android.view.ViewGroup
 import android.widget.NumberPicker
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,9 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -63,64 +61,41 @@ fun MainScreen(
         )
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
-        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // ── Timer picker ──────────────────────────────────────────────────────
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        // ── Timer picker — centered ───────────────────────────────────────────
+        Row(
+            modifier = Modifier.align(Alignment.Center),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "Duration",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TimeWheel(label = "HH", value = hours, max = 99) { hours = it }
-                    Text(":", style = MaterialTheme.typography.displaySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TimeWheel(label = "MM", value = minutes, max = 59) { minutes = it }
-                    Text(":", style = MaterialTheme.typography.displaySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TimeWheel(label = "SS", value = seconds, max = 59) { seconds = it }
-                }
-            }
+            TimeWheel(value = hours, max = 99) { hours = it }
+            Text(":", style = MaterialTheme.typography.displayMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TimeWheel(value = minutes, max = 59) { minutes = it }
+            Text(":", style = MaterialTheme.typography.displayMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TimeWheel(value = seconds, max = 59) { seconds = it }
         }
 
-        // ── Validator ─────────────────────────────────────────────────────────
+        // ── Validator + Start — pinned to bottom ──────────────────────────────
         Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // Validator row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Assets folder",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
                 when {
                     uiState.isValidatingAssets -> Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -140,9 +115,9 @@ fun MainScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error
                     )
+                    else -> Spacer(Modifier)
                 }
             }
-
             OutlinedTextField(
                 modifier = Modifier.fillMaxWidth(),
                 value = uiState.assetPath,
@@ -164,49 +139,41 @@ fun MainScreen(
                     }
                 }
             )
-        }
 
-        // ── Start button ──────────────────────────────────────────────────────
-        Button(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            onClick = { onStartMeditation(hours, minutes, seconds) },
-            enabled = uiState.isAssetsValid && (hours > 0 || minutes > 0 || seconds > 0),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            )
-        ) {
-            Text("Start", style = MaterialTheme.typography.titleMedium)
+            // Start button
+            Button(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                onClick = { onStartMeditation(hours, minutes, seconds) },
+                enabled = uiState.isAssetsValid && (hours > 0 || minutes > 0 || seconds > 0),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text("Start", style = MaterialTheme.typography.titleMedium)
+            }
         }
     }
 }
 
 @Composable
-private fun TimeWheel(label: String, value: Int, max: Int, onValueChange: (Int) -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        androidx.compose.foundation.layout.Box(modifier = Modifier.width(88.dp)) {
-            AndroidView(
-                factory = { ctx ->
-                    NumberPicker(ctx).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
-                        )
-                        minValue = 0
-                        maxValue = max
-                        wrapSelectorWheel = true
-                        setFormatter { v -> "%02d".format(v) }
-                        descendantFocusability = NumberPicker.FOCUS_BLOCK_DESCENDANTS
-                        setOnValueChangedListener { _, _, newVal -> onValueChange(newVal) }
-                    }
-                },
-                update = { picker -> if (picker.value != value) picker.value = value }
-            )
-        }
+private fun TimeWheel(value: Int, max: Int, onValueChange: (Int) -> Unit) {
+    Box(modifier = Modifier.width(88.dp)) {
+        AndroidView(
+            factory = { ctx ->
+                NumberPicker(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                    minValue = 0
+                    maxValue = max
+                    wrapSelectorWheel = true
+                    setFormatter { v -> "%02d".format(v) }
+                    descendantFocusability = NumberPicker.FOCUS_BLOCK_DESCENDANTS
+                    setOnValueChangedListener { _, _, newVal -> onValueChange(newVal) }
+                }
+            },
+            update = { picker -> if (picker.value != value) picker.value = value }
+        )
     }
 }
