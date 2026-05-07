@@ -75,7 +75,7 @@ fun MainScreen(
             contentAlignment = Alignment.Center
         ) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(0.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TimeWheel(value = hours, max = 99) { hours = it }
@@ -98,8 +98,8 @@ fun MainScreen(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 32.dp, vertical = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Validator row
             Row(
