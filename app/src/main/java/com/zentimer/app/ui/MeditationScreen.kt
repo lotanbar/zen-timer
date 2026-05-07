@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -383,13 +384,18 @@ fun MeditationScreen(
         )
 
         // ── Icon buttons — horizontal row at bottom-center ───────────────────
-        Row(
+        androidx.compose.material3.Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 40.dp),
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(start = 32.dp, end = 32.dp, bottom = 40.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = androidx.compose.ui.graphics.Color(0xFFD0D0D0)
         ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
             // Stop
             IconButton(
                 modifier = Modifier.size(56.dp),
@@ -469,7 +475,7 @@ fun MeditationScreen(
             ) {
                 Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(32.dp))
             }
-        }
-    }
+        } // Row
+        } // Surface
+    } // Box
 }
-
