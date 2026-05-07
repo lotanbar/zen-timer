@@ -402,11 +402,6 @@ fun MeditationScreen(
                 .padding(bottom = 20.dp),
             contentAlignment = Alignment.Center
         ) {
-        androidx.compose.material3.Surface(
-            modifier = Modifier.padding(horizontal = 28.dp),
-            shape = RoundedCornerShape(24.dp),
-            color = androidx.compose.ui.graphics.Color(0xFFD0D0D0)
-        ) {
             Row(
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(28.dp),
@@ -491,8 +486,7 @@ fun MeditationScreen(
             ) {
                 Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(36.dp))
             }
-        } // Row
-        } // Surface
-        } // Box
+            }
+        } // Row+Box
     } // Column
 }
