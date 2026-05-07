@@ -8,17 +8,25 @@ import android.net.Uri
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,6 +41,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -354,85 +364,34 @@ fun MeditationScreen(
     val ss = remaining % 60
     val formatted = "%02d:%02d".format(mm, ss)
 
-    Column(
+    var deleteTapCount by remember { mutableIntStateOf(0) }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
     ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            tonalElevation = 2.dp,
-            color = MaterialTheme.colorScheme.surfaceVariant
-        ) {
-            Text(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 28.dp),
-                text = formatted,
-                style = MaterialTheme.typography.displayLarge,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-        }
+        // ── Timer — centered ──────────────────────────────────────────────────
+        Text(
+            modifier = Modifier.align(Alignment.Center),
+            text = formatted,
+            style = MaterialTheme.typography.displayLarge,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
 
-        Row(
+        // ── Icon buttons — stacked vertically at bottom-end ───────────────────
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .align(Alignment.BottomEnd)
+                .padding(end = 24.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Pause / Resume
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    isPaused = !isPaused
-                    ambiencePlayer?.let { player ->
-                        try {
-                            if (isPaused) { if (player.isPlaying) player.pause() }
-                            else player.start()
-                        } catch (_: Exception) { }
-                    }
-                }
-            ) {
-                Text(if (isPaused) "Resume" else "Pause")
-            }
-
-            // Next (shuffle another ambience — hard cut)
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    val next = onNextAmbience() ?: return@Button
-                    switchAmbience(next)
-                },
-                enabled = !finalSessionFadeStarted
-            ) {
-                Text("Next")
-            }
-
-            // Remove (delete file + pick another — hard cut)
-            OutlinedButton(
-                modifier = Modifier.weight(1f),
-                shape = MaterialTheme.shapes.extraLarge,
-                onClick = {
-                    val toRemove = currentAmbiencePath ?: return@OutlinedButton
-                    onRemoveAmbience(toRemove)
-                    val next = onNextAmbience()
-                    switchAmbience(next)
-                },
-                enabled = currentAmbiencePath != null && !finalSessionFadeStarted,
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-            ) {
-                Text("Remove")
-            }
-
             // Stop
-            OutlinedButton(
-                modifier = Modifier.weight(1f),
-                shape = MaterialTheme.shapes.extraLarge,
+            IconButton(
+                modifier = Modifier.size(56.dp),
                 onClick = {
                     oneShotPlayers.forEach { player ->
                         try { if (player.isPlaying) player.stop() } catch (_: Exception) { }
@@ -447,9 +406,67 @@ fun MeditationScreen(
                     ambiencePlayer = null
                     onSessionFinished()
                 },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)
             ) {
-                Text("Stop")
+                Icon(Icons.Filled.Stop, contentDescription = "Stop", modifier = Modifier.size(32.dp))
+            }
+
+            // Pause / Resume
+            IconButton(
+                modifier = Modifier.size(56.dp),
+                onClick = {
+                    isPaused = !isPaused
+                    ambiencePlayer?.let { player ->
+                        try {
+                            if (isPaused) { if (player.isPlaying) player.pause() }
+                            else player.start()
+                        } catch (_: Exception) { }
+                    }
+                },
+                colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)
+            ) {
+                Icon(
+                    if (isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                    contentDescription = if (isPaused) "Resume" else "Pause",
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+
+            // Skip (next ambience — hard cut)
+            IconButton(
+                modifier = Modifier.size(56.dp),
+                onClick = {
+                    val next = onNextAmbience() ?: return@IconButton
+                    switchAmbience(next)
+                },
+                enabled = !finalSessionFadeStarted,
+                colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)
+            ) {
+                Icon(Icons.Filled.FastForward, contentDescription = "Skip", modifier = Modifier.size(32.dp))
+            }
+
+            // Delete (3-tap confirmation)
+            IconButton(
+                modifier = Modifier.size(56.dp),
+                onClick = {
+                    deleteTapCount++
+                    when (deleteTapCount) {
+                        1 -> Toast.makeText(context, "Tap 3 more times to delete", Toast.LENGTH_SHORT).show()
+                        2 -> Toast.makeText(context, "2 more taps to delete", Toast.LENGTH_SHORT).show()
+                        3 -> Toast.makeText(context, "1 more tap to delete", Toast.LENGTH_SHORT).show()
+                        else -> {
+                            deleteTapCount = 0
+                            val toRemove = currentAmbiencePath ?: return@IconButton
+                            onRemoveAmbience(toRemove)
+                            val next = onNextAmbience()
+                            switchAmbience(next)
+                        }
+                    }
+                },
+                enabled = currentAmbiencePath != null && !finalSessionFadeStarted,
+                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(32.dp))
             }
         }
     }
