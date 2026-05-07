@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -368,37 +370,51 @@ fun MeditationScreen(
 
     var deleteTapCount by remember { mutableIntStateOf(0) }
 
-    Box(
+    // Fixed height for the button bar so timer knows how much upper space it gets
+    val buttonBarHeight = 120.dp
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        // ── Timer — centered ──────────────────────────────────────────────────
-        Text(
-            modifier = Modifier.align(Alignment.Center),
-            text = formatted,
-            style = MaterialTheme.typography.displayLarge,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center
-        )
-
-        // ── Icon buttons — horizontal row at bottom-center ───────────────────
-        androidx.compose.material3.Surface(
+        // ── Timer — centered in upper area ────────────────────────────────────
+        Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(start = 32.dp, end = 32.dp, bottom = 40.dp),
+                .fillMaxWidth()
+                .weight(1f),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = formatted,
+                style = MaterialTheme.typography.displayLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        // ── Icon buttons — horizontal row, pinned at bottom ───────────────────
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(buttonBarHeight)
+                .padding(bottom = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+        androidx.compose.material3.Surface(
+            modifier = Modifier.padding(horizontal = 28.dp),
             shape = RoundedCornerShape(24.dp),
             color = androidx.compose.ui.graphics.Color(0xFFD0D0D0)
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(28.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
             // Stop
             IconButton(
-                modifier = Modifier.size(56.dp),
+                modifier = Modifier.size(68.dp),
                 onClick = {
                     oneShotPlayers.forEach { player ->
                         try { if (player.isPlaying) player.stop() } catch (_: Exception) { }
@@ -415,12 +431,12 @@ fun MeditationScreen(
                 },
                 colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)
             ) {
-                Icon(Icons.Filled.Stop, contentDescription = "Stop", modifier = Modifier.size(32.dp))
+                Icon(Icons.Filled.Stop, contentDescription = "Stop", modifier = Modifier.size(36.dp))
             }
 
             // Pause / Resume
             IconButton(
-                modifier = Modifier.size(56.dp),
+                modifier = Modifier.size(68.dp),
                 onClick = {
                     isPaused = !isPaused
                     ambiencePlayer?.let { player ->
@@ -441,7 +457,7 @@ fun MeditationScreen(
 
             // Skip (next ambience — hard cut)
             IconButton(
-                modifier = Modifier.size(56.dp),
+                modifier = Modifier.size(68.dp),
                 onClick = {
                     val next = onNextAmbience() ?: return@IconButton
                     switchAmbience(next)
@@ -449,12 +465,12 @@ fun MeditationScreen(
                 enabled = !finalSessionFadeStarted,
                 colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)
             ) {
-                Icon(Icons.Filled.FastForward, contentDescription = "Skip", modifier = Modifier.size(32.dp))
+                Icon(Icons.Filled.FastForward, contentDescription = "Skip", modifier = Modifier.size(36.dp))
             }
 
             // Delete (3-tap confirmation)
             IconButton(
-                modifier = Modifier.size(56.dp),
+                modifier = Modifier.size(68.dp),
                 onClick = {
                     deleteTapCount++
                     when (deleteTapCount) {
@@ -473,9 +489,10 @@ fun MeditationScreen(
                 enabled = currentAmbiencePath != null && !finalSessionFadeStarted,
                 colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
             ) {
-                Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(32.dp))
+                Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(36.dp))
             }
         } // Row
         } // Surface
-    } // Box
+        } // Box
+    } // Column
 }
