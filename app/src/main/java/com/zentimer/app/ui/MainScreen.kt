@@ -1,7 +1,5 @@
 package com.zentimer.app.ui
 
-import android.view.ViewGroup
-import android.widget.NumberPicker
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.Button
@@ -33,8 +32,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 
 @Composable
 fun MainScreen(
@@ -67,7 +67,7 @@ fun MainScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        // ── Timer picker — centered in upper area ─────────────────────────────
+        // ── Timer inputs — centered in upper area ─────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -79,30 +79,23 @@ fun MainScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                TimeWheel(value = hours, max = 99) { hours = it }
-                Text(
-                    ":",
-                    style = MaterialTheme.typography.displayMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                TimeWheel(value = minutes, max = 59) { minutes = it }
-                Text(
-                    ":",
-                    style = MaterialTheme.typography.displayMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                TimeWheel(value = seconds, max = 59) { seconds = it }
+                TimeInput(value = hours, label = "HH", max = 99) { hours = it }
+                Text(":", style = MaterialTheme.typography.displayMedium,
+                    color = MaterialTheme.colorScheme.onSurface)
+                TimeInput(value = minutes, label = "MM", max = 59) { minutes = it }
+                Text(":", style = MaterialTheme.typography.displayMedium,
+                    color = MaterialTheme.colorScheme.onSurface)
+                TimeInput(value = seconds, label = "SS", max = 59) { seconds = it }
             }
         }
 
-        // ── Validator + Start — pinned to bottom ──────────────────────────────
+        // ── Validator + Start ─────────────────────────────────────────────────
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Validator row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -151,8 +144,6 @@ fun MainScreen(
                     }
                 }
             )
-
-            // Start button
             Button(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -168,25 +159,21 @@ fun MainScreen(
 }
 
 @Composable
-private fun TimeWheel(value: Int, max: Int, onValueChange: (Int) -> Unit) {
-    Box(modifier = Modifier.width(80.dp)) {
-        AndroidView(
-            factory = { ctx ->
-                NumberPicker(ctx).apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    )
-                    minValue = 0
-                    maxValue = max
-                    wrapSelectorWheel = true
-                    setFormatter { v -> "%02d".format(v) }
-                    descendantFocusability = NumberPicker.FOCUS_BLOCK_DESCENDANTS
-                    textSize = 48f * ctx.resources.displayMetrics.scaledDensity
-                    setOnValueChangedListener { _, _, newVal -> onValueChange(newVal) }
-                }
-            },
-            update = { picker -> if (picker.value != value) picker.value = value }
-        )
-    }
+private fun TimeInput(value: Int, label: String, max: Int, onValueChange: (Int) -> Unit) {
+    var text by remember(value) { mutableStateOf("%02d".format(value)) }
+    OutlinedTextField(
+        modifier = Modifier.width(76.dp),
+        value = text,
+        onValueChange = { raw ->
+            val digits = raw.filter { it.isDigit() }.take(2)
+            text = digits
+            val parsed = digits.toIntOrNull() ?: 0
+            onValueChange(parsed.coerceIn(0, max))
+        },
+        label = { Text(label) },
+        singleLine = true,
+        textStyle = MaterialTheme.typography.headlineMedium.copy(textAlign = TextAlign.Center),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        shape = RoundedCornerShape(12.dp)
+    )
 }
