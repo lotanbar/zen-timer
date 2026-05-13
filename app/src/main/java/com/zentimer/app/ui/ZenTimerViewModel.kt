@@ -126,9 +126,9 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
             }
             validateAssets(savedUri)
             preloadVisibleThumbnails(savedUri)
+            initializeAmbienceCatalog(savedUri)
+            initializeBellCatalog(savedUri)
         }
-        initializeAmbienceCatalog()
-        initializeBellCatalog()
     }
 
     fun submitDuration(hours: Int, minutes: Int, seconds: Int): Boolean {
@@ -290,9 +290,10 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
                 assetBannerMessage = null
             )
         }
-        loadBellDurations(uriString)
         validateAssets(uriString)
         preloadVisibleThumbnails(uriString)
+        initializeAmbienceCatalog(uriString)
+        initializeBellCatalog(uriString)
     }
 
     private fun validateAssets(uriString: String) {
@@ -321,21 +322,21 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun initializeAmbienceCatalog() {
+    private fun initializeAmbienceCatalog(uriString: String) {
+        if (uriString.isBlank()) return
         viewModelScope.launch {
             val (tracks, thumbnails) = withContext(Dispatchers.IO) {
-                val manifestLines = app.assets.open("expected_assets_manifest.txt")
-                    .bufferedReader()
-                    .useLines { lines -> lines.map { it.trim() }.filter { it.isNotBlank() }.toList() }
+                val root = openAssetRoot(app, uriString)
+                    ?: return@withContext Pair(emptyList<AmbienceTrack>(), emptyList<String>())
 
-                val allThumbnails = manifestLines
-                    .filter { it.startsWith("Thumbnails/") && it.endsWith(".jpg", ignoreCase = true) }
-                    .distinct()
-                    .sorted()
+                val allFiles = mutableListOf<String>()
+                collectRelativeFilePaths(root, "", allFiles)
 
-                val catalog = manifestLines
-                    .filter { it.endsWith(".mp3", ignoreCase = true) }
-                    .filter { !it.startsWith("bells/") }
+                val catalog = allFiles
+                    .filter { path ->
+                        val ext = path.substringAfterLast('.', "").lowercase()
+                        ext in AUDIO_EXTENSIONS && !path.startsWith("bells/")
+                    }
                     .distinct()
                     .map { path ->
                         val fileName = path.substringAfterLast('/').substringBeforeLast('.')
@@ -346,7 +347,16 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
                             thumbnailRelativePath = ""
                         )
                     }
-                Pair(catalog, allThumbnails)
+
+                val thumbs = allFiles
+                    .filter { path ->
+                        val ext = path.substringAfterLast('.', "").lowercase()
+                        (ext == "jpg" || ext == "png") && path.startsWith("Thumbnails/")
+                    }
+                    .distinct()
+                    .sorted()
+
+                Pair(catalog, thumbs)
             }
 
             allThumbnailPaths = thumbnails
@@ -378,26 +388,30 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun initializeBellCatalog() {
+    private fun initializeBellCatalog(uriString: String) {
+        if (uriString.isBlank()) return
         viewModelScope.launch {
             val tracks = withContext(Dispatchers.IO) {
-                app.assets.open("expected_assets_manifest.txt")
-                    .bufferedReader()
-                    .useLines { lines ->
-                        lines
-                            .map { it.trim() }
-                            .filter { it.startsWith("bells/bells_audio/") && it.endsWith(".mp3", ignoreCase = true) }
-                            .distinct()
-                            .map { path ->
-                                val fileName = path.substringAfterLast('/').substringBeforeLast('.')
-                                BellTrack(
-                                    relativePath = path,
-                                    title = prettifyTrackName(fileName),
-                                    thumbnailLabel = thumbnailFromName(fileName),
-                                    thumbnailRelativePath = "bells/bells_images/$fileName.png"
-                                )
-                            }
-                            .toList()
+                val root = openAssetRoot(app, uriString)
+                    ?: return@withContext emptyList<BellTrack>()
+
+                val allFiles = mutableListOf<String>()
+                collectRelativeFilePaths(root, "", allFiles)
+
+                allFiles
+                    .filter { path ->
+                        val ext = path.substringAfterLast('.', "").lowercase()
+                        ext in AUDIO_EXTENSIONS && path.startsWith("bells/bells_audio/")
+                    }
+                    .distinct()
+                    .map { path ->
+                        val fileName = path.substringAfterLast('/').substringBeforeLast('.')
+                        BellTrack(
+                            relativePath = path,
+                            title = prettifyTrackName(fileName),
+                            thumbnailLabel = thumbnailFromName(fileName),
+                            thumbnailRelativePath = ""
+                        )
                     }
             }
             bellCatalog = tracks
@@ -413,9 +427,8 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
             }
             preloadVisibleThumbnails(_uiState.value.assetPath)
 
-            val assetUri = _uiState.value.assetPath
-            if (assetUri.isNotBlank()) {
-                loadBellDurations(assetUri)
+            if (uriString.isNotBlank()) {
+                loadBellDurations(uriString)
             }
         }
     }
@@ -614,13 +627,13 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
             .trim('_')
 
     /**
-     * Shuffles the full catalog, picks [AMBIENCE_BATCH_SIZE] tracks, then greedily assigns
-     * the best *available* thumbnail to each — so every track in the batch gets a unique,
-     * semantically relevant photo with no collisions.
+     * Shuffles the full catalog and picks [AMBIENCE_BATCH_SIZE] tracks.
+     * If thumbnails are available, greedily assigns the best unique thumbnail to each track.
      */
     private fun pickAmbienceBatch(seed: Long): List<AmbienceTrack> {
-        if (ambienceCatalog.isEmpty() || allThumbnailPaths.isEmpty()) return emptyList()
+        if (ambienceCatalog.isEmpty()) return emptyList()
         val subset = ambienceCatalog.shuffled(Random(seed)).take(AMBIENCE_BATCH_SIZE)
+        if (allThumbnailPaths.isEmpty()) return subset
         val used = mutableSetOf<String>()
         return subset.map { track ->
             val fileName = track.relativePath.substringAfterLast('/').substringBeforeLast('.')

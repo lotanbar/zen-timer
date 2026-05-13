@@ -5,75 +5,46 @@ import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private const val EXPECTED_MANIFEST_PATH = "expected_assets_manifest.txt"
-
 sealed interface AssetValidationResult {
     data object Valid : AssetValidationResult
     data class Invalid(val reason: String) : AssetValidationResult
 }
 
-class AssetPackageValidator(
-    private val application: Application
-) {
-    private val expectedFiles: Set<String> by lazy {
-        application.assets.open(EXPECTED_MANIFEST_PATH).bufferedReader().useLines { lines ->
-            lines.map { it.trim() }
-                .filter { it.isNotBlank() }
-                .toSet()
-        }
-    }
+class AssetPackageValidator(private val application: Application) {
 
     suspend fun validate(path: String): AssetValidationResult = withContext(Dispatchers.IO) {
         try {
             val root = openAssetRoot(application, path)
-
             if (root == null || !root.exists() || !root.isDirectory) {
                 return@withContext AssetValidationResult.Invalid("Path unavailable.")
             }
-
-            val actualFiles = mutableSetOf<String>()
-            val collectResult = collectRelativeFiles(root, "", actualFiles)
-            if (collectResult != null) {
-                return@withContext collectResult
-            }
-
-            if (actualFiles == expectedFiles) {
-                AssetValidationResult.Valid
-            } else {
-                val missing = expectedFiles.size - actualFiles.size
-                val msg = if (missing > 0) "$missing/${expectedFiles.size} tracks missing"
-                          else "${actualFiles.size}/${expectedFiles.size} files found"
-                AssetValidationResult.Invalid(msg)
-            }
+            checkDirectory(root, hasAudioRef = intArrayOf(0))
         } catch (_: Exception) {
             AssetValidationResult.Invalid("Failed to scan folder.")
         }
     }
 
-    private fun collectRelativeFiles(
-        node: DocumentFile,
-        relativeParent: String,
-        out: MutableSet<String>
-    ): AssetValidationResult.Invalid? {
-        val children = try {
-            node.listFiles()
-        } catch (_: Exception) {
+    private fun checkDirectory(dir: DocumentFile, hasAudioRef: IntArray): AssetValidationResult {
+        val children = try { dir.listFiles() } catch (_: Exception) {
             return AssetValidationResult.Invalid("Permission denied.")
         }
-
-        children.forEach { child ->
-            val name = child.name ?: return@forEach
-            val relative = if (relativeParent.isBlank()) name else "$relativeParent/$name"
-
+        for (child in children) {
             if (child.isDirectory) {
-                val nestedError = collectRelativeFiles(child, relative, out)
-                if (nestedError != null) {
-                    return nestedError
-                }
+                val result = checkDirectory(child, hasAudioRef)
+                if (result is AssetValidationResult.Invalid) return result
             } else if (child.isFile) {
-                out += relative
+                val name = child.name ?: continue
+                val ext = name.substringAfterLast('.', "").lowercase()
+                if (ext !in AUDIO_EXTENSIONS) {
+                    return AssetValidationResult.Invalid("\"$name\" is not an audio file.")
+                }
+                hasAudioRef[0]++
             }
         }
-        return null
+        return if (hasAudioRef[0] == 0 && dir.listFiles().none { it.isDirectory }) {
+            AssetValidationResult.Invalid("No audio files found.")
+        } else {
+            AssetValidationResult.Valid
+        }
     }
 }

@@ -4,3 +4,12 @@ build/
 local.properties
 *.iml
 .idea/
+
+# Audio files — kept locally, never committed
+*.mp3
+*.wav
+*.ogg
+*.flac
+*.aac
+*.m4a
+*.opus

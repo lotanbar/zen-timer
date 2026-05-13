@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
 
+val AUDIO_EXTENSIONS = setOf("mp3", "wav", "ogg", "flac", "aac", "m4a", "opus")
+
 /**
  * Returns a [DocumentFile] rooted at [path].
  * [path] may be:
@@ -22,5 +24,22 @@ fun openAssetRoot(context: Context, path: String): DocumentFile? {
         }
     } catch (_: Exception) {
         null
+    }
+}
+
+fun collectRelativeFilePaths(
+    node: DocumentFile,
+    relativeParent: String,
+    out: MutableList<String>
+) {
+    val children = try { node.listFiles() } catch (_: Exception) { return }
+    for (child in children) {
+        val name = child.name ?: continue
+        val relative = if (relativeParent.isBlank()) name else "$relativeParent/$name"
+        if (child.isDirectory) {
+            collectRelativeFilePaths(child, relative, out)
+        } else if (child.isFile) {
+            out += relative
+        }
     }
 }
