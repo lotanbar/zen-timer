@@ -280,6 +280,31 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun pickRandomAmbienceTrack(exclude: String? = null): AmbienceTrack? {
+        val pool = if (exclude != null) ambienceCatalog.filter { it.relativePath != exclude }
+                   else ambienceCatalog
+        return pool.randomOrNull()
+    }
+
+    fun pickRandomBellTrack(): BellTrack? = bellCatalog.randomOrNull()
+
+    fun removeAmbienceFile(relativePath: String, assetPath: String) {
+        ambienceCatalog = ambienceCatalog.filter { it.relativePath != relativePath }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val root = openAssetRoot(app, assetPath) ?: return@launch
+                val parts = relativePath.split('/').filter { it.isNotBlank() }
+                var current: DocumentFile = root
+                for (p in parts.dropLast(1)) {
+                    current = current.listFiles().firstOrNull { it.name == p } ?: return@launch
+                }
+                current.listFiles().firstOrNull { it.name == parts.last() }?.delete()
+            } catch (e: Exception) {
+                Log.w("ZenTimerVM", "Failed to delete $relativePath: $e")
+            }
+        }
+    }
+
     fun setAssetDirectory(uriString: String) {
         prefs.edit().putString(KEY_ASSET_TREE_URI, uriString).apply()
         _uiState.update {
@@ -480,14 +505,7 @@ class ZenTimerViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun preloadVisibleThumbnails(assetTreeUri: String) {
-        if (assetTreeUri.isBlank()) return
-        val ambienceThumbs = _uiState.value.ambienceTracks.map { it.thumbnailRelativePath }
-        val bellThumbs = _uiState.value.bellTracks.map { it.thumbnailRelativePath }
-        val allThumbs = (ambienceThumbs + bellThumbs).distinct()
-        if (allThumbs.isEmpty()) return
-        viewModelScope.launch(Dispatchers.IO) {
-            AssetThumbnailCache.preload(app, assetTreeUri, allThumbs)
-        }
+        // no-op: thumbnail caching removed along with AssetPreviewImage
     }
 
     private fun startPreview(relativePath: String) {
